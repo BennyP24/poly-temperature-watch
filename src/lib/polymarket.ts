@@ -1,65 +1,14 @@
-const GAMMA_API = "https://gamma-api.polymarket.com";
+import { supabase } from "@/integrations/supabase/client";
 
-export interface PolymarketMarket {
-  id: string;
-  question: string;
-  slug: string;
-  description: string;
-  outcomes: string;
-  outcomePrices: string;
-  active: boolean;
-  closed: boolean;
-  startDate: string;
-  endDate: string;
-  createdAt: string;
-  volume: string;
-  liquidity: string;
-  image: string;
-  icon: string;
-  tags?: { id: string; label: string; slug: string }[];
-}
-
-export interface PolymarketEvent {
-  id: string;
-  title: string;
-  slug: string;
-  description: string;
-  startDate: string;
-  endDate: string;
-  markets: PolymarketMarket[];
-  createdAt: string;
-  volume: string;
-  liquidity: string;
-  image: string;
-  icon: string;
-  tags?: { id: string; label: string; slug: string }[];
-}
-
-export interface ParsedTemperatureBet {
-  id: string;
-  question: string;
-  slug: string;
-  description: string;
-  location: string;
-  timezone: string;
-  outcomes: string[];
-  prices: number[];
-  active: boolean;
-  closed: boolean;
-  endDate: string;
-  createdAt: string;
-  volume: string;
-  referenceLinks: string[];
-  isNew: boolean;
-  polymarketUrl: string;
-}
-
-// Known city → timezone mappings for temperature bets
 const CITY_TIMEZONES: Record<string, string> = {
+  "munich": "Europe/Berlin",
+  "london": "Europe/London",
+  "paris": "Europe/Paris",
+  "tokyo": "Asia/Tokyo",
+  "sydney": "Australia/Sydney",
   "new york": "America/New_York",
   "nyc": "America/New_York",
   "los angeles": "America/Los_Angeles",
-  "la": "America/Los_Angeles",
   "chicago": "America/Chicago",
   "miami": "America/New_York",
   "dallas": "America/Chicago",
@@ -68,65 +17,65 @@ const CITY_TIMEZONES: Record<string, string> = {
   "denver": "America/Denver",
   "seattle": "America/Los_Angeles",
   "san francisco": "America/Los_Angeles",
-  "sf": "America/Los_Angeles",
   "boston": "America/New_York",
   "atlanta": "America/New_York",
   "washington": "America/New_York",
-  "dc": "America/New_York",
-  "london": "Europe/London",
-  "paris": "Europe/Paris",
-  "tokyo": "Asia/Tokyo",
-  "sydney": "Australia/Sydney",
   "toronto": "America/Toronto",
   "las vegas": "America/Los_Angeles",
   "austin": "America/Chicago",
-  "nashville": "America/Chicago",
   "detroit": "America/Detroit",
-  "minneapolis": "America/Chicago",
-  "philadelphia": "America/New_York",
   "portland": "America/Los_Angeles",
-  "charlotte": "America/New_York",
-  "san diego": "America/Los_Angeles",
-  "tampa": "America/New_York",
-  "orlando": "America/New_York",
-  "sacramento": "America/Los_Angeles",
   "salt lake city": "America/Denver",
-  "pittsburgh": "America/New_York",
-  "cleveland": "America/New_York",
-  "columbus": "America/New_York",
-  "indianapolis": "America/Indiana/Indianapolis",
-  "kansas city": "America/Chicago",
-  "st louis": "America/Chicago",
-  "memphis": "America/Chicago",
-  "milwaukee": "America/Chicago",
-  "jacksonville": "America/New_York",
-  "raleigh": "America/New_York",
-  "richmond": "America/New_York",
-  "louisville": "America/Kentucky/Louisville",
-  "oklahoma city": "America/Chicago",
-  "new orleans": "America/Chicago",
   "anchorage": "America/Anchorage",
   "honolulu": "Pacific/Honolulu",
+  "berlin": "Europe/Berlin",
+  "rome": "Europe/Rome",
+  "madrid": "Europe/Madrid",
+  "amsterdam": "Europe/Amsterdam",
+  "zurich": "Europe/Zurich",
+  "dubai": "Asia/Dubai",
+  "singapore": "Asia/Singapore",
+  "hong kong": "Asia/Hong_Kong",
+  "seoul": "Asia/Seoul",
+  "beijing": "Asia/Shanghai",
+  "shanghai": "Asia/Shanghai",
+  "moscow": "Europe/Moscow",
+  "istanbul": "Europe/Istanbul",
+  "cairo": "Africa/Cairo",
+  "johannesburg": "Africa/Johannesburg",
+  "são paulo": "America/Sao_Paulo",
+  "sao paulo": "America/Sao_Paulo",
+  "mexico city": "America/Mexico_City",
+  "buenos aires": "America/Argentina/Buenos_Aires",
+  "lima": "America/Lima",
+  "bogota": "America/Bogota",
+  "santiago": "America/Santiago",
+  "delhi": "Asia/Kolkata",
+  "mumbai": "Asia/Kolkata",
+  "bangkok": "Asia/Bangkok",
+  "jakarta": "Asia/Jakarta",
+  "kuala lumpur": "Asia/Kuala_Lumpur",
+  "manila": "Asia/Manila",
+  "auckland": "Pacific/Auckland",
+  "melbourne": "Australia/Melbourne",
+  "brisbane": "Australia/Brisbane",
+  "perth": "Australia/Perth",
+  "vancouver": "America/Vancouver",
+  "calgary": "America/Edmonton",
+  "montreal": "America/Toronto",
+  "ottawa": "America/Toronto",
 };
 
-function extractLocation(question: string): string {
-  // Try to extract city name from temperature bet questions
-  // Common patterns: "Will the temperature in X exceed...", "X temperature above..."
-  const patterns = [
-    /(?:temperature|temp)\s+in\s+([A-Z][a-zA-Z\s]+?)(?:\s+(?:exceed|above|below|reach|hit|be|on|for))/i,
-    /(?:Will|What)\s+(?:the\s+)?(?:high|low)?\s*(?:temperature|temp)\s+in\s+([A-Z][a-zA-Z\s]+?)(?:\s+(?:exceed|above|below|reach|hit|be|on|for))/i,
-    /([A-Z][a-zA-Z\s]+?)\s+(?:high|low)?\s*(?:temperature|temp)/i,
-    /(?:in\s+)([A-Z][a-zA-Z\s,]+?)(?:\s+on|\s+be|\s+exceed|\?)/i,
-  ];
+function extractLocation(title: string): string {
+  // Match patterns like "temperature in Munich" or "temperature in New York"
+  const match = title.match(/(?:temperature|temp)\s+in\s+([A-Za-z\s]+?)(?:\s+(?:be|on|exceed|above|below|reach|hit))/i);
+  if (match?.[1]) return match[1].trim();
 
-  for (const pattern of patterns) {
-    const match = question.match(pattern);
-    if (match?.[1]) {
-      return match[1].trim();
-    }
-  }
+  // Try from event title like "Highest Temperature in Munich on March 6"
+  const match2 = title.match(/in\s+([A-Za-z\s]+?)(?:\s+on\s)/i);
+  if (match2?.[1]) return match2[1].trim();
 
-  return "Unknown Location";
+  return "Unknown";
 }
 
 function getTimezone(location: string): string {
@@ -134,158 +83,138 @@ function getTimezone(location: string): string {
   for (const [city, tz] of Object.entries(CITY_TIMEZONES)) {
     if (lower.includes(city)) return tz;
   }
-  return "America/New_York"; // Default fallback
+  return "UTC";
 }
 
 function extractLinks(description: string): string[] {
-  const urlRegex = /https?:\/\/[^\s)<>"]+/g;
+  const urlRegex = /https?:\/\/[^\s)<>"\\]+/g;
   return description.match(urlRegex) || [];
 }
 
-function isNewBet(createdAt: string): boolean {
-  const created = new Date(createdAt);
+export interface TemperatureEvent {
+  id: string;
+  title: string;
+  description: string;
+  location: string;
+  timezone: string;
+  endDate: string;
+  createdAt: string;
+  image: string;
+  slug: string;
+  resolutionSource: string;
+  referenceLinks: string[];
+  volume: number;
+  liquidity: number;
+  polymarketUrl: string;
+  isNew: boolean;
+  markets: TemperatureMarket[];
+}
+
+export interface TemperatureMarket {
+  id: string;
+  question: string;
+  groupItemTitle: string;
+  yesPrice: number;
+  noPrice: number;
+  volume: number;
+  active: boolean;
+  closed: boolean;
+  isFulfilled: boolean; // 100% on one side
+}
+
+async function callProxy(endpoint: string, params: string) {
+  const { data, error } = await supabase.functions.invoke("polymarket-proxy", {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint, params }),
+  });
+
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
+  // Use GET with query params through the proxy
+  const response = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/polymarket-proxy?endpoint=events&params=${encodeURIComponent("active=true&closed=false&limit=100&order=createdAt&ascending=false&tag_slug=weather")}`,
+    {
+      headers: {
+        "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+      },
+    }
+  );
+
+  if (!response.ok) throw new Error(`Proxy error: ${response.status}`);
+  const events = await response.json();
+
   const now = new Date();
-  const hoursDiff = (now.getTime() - created.getTime()) / (1000 * 60 * 60);
-  return hoursDiff < 24;
-}
+  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-export async function fetchTemperatureMarkets(): Promise<ParsedTemperatureBet[]> {
-  try {
-    // Search for temperature-related events
-    const response = await fetch(
-      `${GAMMA_API}/events?active=true&closed=false&limit=100&order=createdAt&ascending=false`
-    );
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
-
-    const events: PolymarketEvent[] = await response.json();
-
-    // Filter for temperature-related events
-    const tempEvents = events.filter((event) => {
-      const text = `${event.title} ${event.description}`.toLowerCase();
-      return (
-        text.includes("temperature") ||
-        text.includes("degrees") ||
-        text.includes("°f") ||
-        text.includes("°c") ||
-        text.includes("weather") ||
-        (text.includes("high") && text.includes("forecast"))
-      );
-    });
-
-    const bets: ParsedTemperatureBet[] = [];
-
-    for (const event of tempEvents) {
-      if (event.markets) {
-        for (const market of event.markets) {
-          const location = extractLocation(market.question || event.title);
-          const timezone = getTimezone(location);
-          const description = market.description || event.description || "";
-
-          let outcomes: string[] = [];
-          let prices: number[] = [];
-
-          try {
-            outcomes = JSON.parse(market.outcomes || "[]");
-            prices = JSON.parse(market.outcomePrices || "[]").map(Number);
-          } catch {
-            outcomes = ["Yes", "No"];
-            prices = [0.5, 0.5];
-          }
-
-          bets.push({
-            id: market.id,
-            question: market.question || event.title,
-            slug: market.slug || event.slug,
-            description,
-            location,
-            timezone,
-            outcomes,
-            prices,
-            active: market.active,
-            closed: market.closed,
-            endDate: market.endDate || event.endDate,
-            createdAt: market.createdAt || event.createdAt,
-            volume: market.volume || "0",
-            referenceLinks: extractLinks(description),
-            isNew: isNewBet(market.createdAt || event.createdAt),
-            polymarketUrl: `https://polymarket.com/event/${event.slug}`,
-          });
-        }
-      }
-    }
-
-    return bets;
-  } catch (error) {
-    console.error("Failed to fetch temperature markets:", error);
-    return [];
-  }
-}
-
-// Also try searching directly for temperature markets
-export async function searchTemperatureMarkets(): Promise<ParsedTemperatureBet[]> {
-  try {
-    const response = await fetch(
-      `${GAMMA_API}/markets?active=true&closed=false&limit=50&order=createdAt&ascending=false&tag_slug=weather`
-    );
-
-    if (!response.ok) {
-      // Fallback: search by text
-      const searchRes = await fetch(
-        `${GAMMA_API}/markets?active=true&closed=false&limit=50&order=createdAt&ascending=false`
-      );
-      if (!searchRes.ok) return [];
-      const markets: PolymarketMarket[] = await searchRes.json();
-      return processMarkets(markets);
-    }
-
-    const markets: PolymarketMarket[] = await response.json();
-    return processMarkets(markets);
-  } catch {
-    return [];
-  }
-}
-
-function processMarkets(markets: PolymarketMarket[]): ParsedTemperatureBet[] {
-  return markets
-    .filter((m) => {
-      const text = `${m.question} ${m.description}`.toLowerCase();
-      return text.includes("temperature") || text.includes("degrees") || text.includes("°f") || text.includes("°c");
+  return events
+    .filter((e: any) => {
+      // Must be active, not closed, and temperature-related
+      if (e.closed) return false;
+      const text = `${e.title || ""} ${e.description || ""}`.toLowerCase();
+      return text.includes("temperature") || text.includes("°c") || text.includes("°f");
     })
-    .map((market) => {
-      const location = extractLocation(market.question);
+    .map((event: any) => {
+      const title = event.title || "";
+      const description = event.description || "";
+      const location = extractLocation(title) || extractLocation(description);
       const timezone = getTimezone(location);
-      const description = market.description || "";
+      const referenceLinks = extractLinks(description);
+      const resolutionSource = event.markets?.[0]?.resolutionSource || referenceLinks[0] || "";
 
-      let outcomes: string[] = [];
-      let prices: number[] = [];
-      try {
-        outcomes = JSON.parse(market.outcomes || "[]");
-        prices = JSON.parse(market.outcomePrices || "[]").map(Number);
-      } catch {
-        outcomes = ["Yes", "No"];
-        prices = [0.5, 0.5];
-      }
+      const markets: TemperatureMarket[] = (event.markets || [])
+        .filter((m: any) => !m.closed)
+        .map((m: any) => {
+          let yesPrice = 0;
+          let noPrice = 0;
+          try {
+            const prices = JSON.parse(m.outcomePrices || "[0,0]");
+            yesPrice = parseFloat(prices[0]) || 0;
+            noPrice = parseFloat(prices[1]) || 0;
+          } catch { /* noop */ }
+
+          const isFulfilled = yesPrice >= 0.99 || noPrice >= 0.99;
+
+          return {
+            id: m.id,
+            question: m.question || "",
+            groupItemTitle: m.groupItemTitle || m.question || "",
+            yesPrice,
+            noPrice,
+            volume: m.volumeNum || parseFloat(m.volume) || 0,
+            active: m.active,
+            closed: m.closed,
+            isFulfilled,
+          };
+        });
+
+      // Filter out events where ALL markets are fulfilled (100%)
+      const hasUnfulfilled = markets.some((m) => !m.isFulfilled);
 
       return {
-        id: market.id,
-        question: market.question,
-        slug: market.slug,
+        id: event.id,
+        title,
         description,
         location,
         timezone,
-        outcomes,
-        prices,
-        active: market.active,
-        closed: market.closed,
-        endDate: market.endDate,
-        createdAt: market.createdAt,
-        volume: market.volume || "0",
-        referenceLinks: extractLinks(description),
-        isNew: isNewBet(market.createdAt),
-        polymarketUrl: `https://polymarket.com/market/${market.slug}`,
+        endDate: event.endDate,
+        createdAt: event.createdAt,
+        image: event.image || event.icon || "",
+        slug: event.slug || "",
+        resolutionSource,
+        referenceLinks,
+        volume: event.volume || 0,
+        liquidity: event.liquidity || event.liquidityClob || 0,
+        polymarketUrl: `https://polymarket.com/event/${event.slug}`,
+        isNew: new Date(event.createdAt) > oneDayAgo,
+        markets: markets.filter((m) => !m.isFulfilled), // Only show unfulfilled
+        _hasUnfulfilled: hasUnfulfilled,
       };
-    });
+    })
+    .filter((e: any) => e._hasUnfulfilled && e.markets.length > 0)
+    .map(({ _hasUnfulfilled, ...e }: any) => e);
 }

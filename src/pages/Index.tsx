@@ -5,7 +5,7 @@ import { TemperatureBetCard } from "@/components/TemperatureBetCard";
 import { Thermometer, RefreshCw, AlertTriangle } from "lucide-react";
 
 const Index = () => {
-  const { data: bets, isLoading, error, dataUpdatedAt, refetch, isFetching } = usePolymarketData();
+  const { data: events, isLoading, error, dataUpdatedAt, refetch, isFetching } = usePolymarketData();
   const [userTimezone, setUserTimezone] = useState("UTC");
 
   useEffect(() => {
@@ -16,12 +16,11 @@ const Index = () => {
     }
   }, []);
 
-  const newSignals = useMemo(() => bets?.filter((b) => b.isNew).length ?? 0, [bets]);
+  const newSignals = useMemo(() => events?.filter((e) => e.isNew).length ?? 0, [events]);
   const lastRefresh = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
 
   return (
     <div className="relative min-h-screen bg-background">
-      {/* Scanline effect */}
       <div className="scanline fixed inset-0 z-50 h-[200%]" />
 
       <div className="relative z-10 mx-auto max-w-6xl px-4 py-6">
@@ -36,7 +35,7 @@ const Index = () => {
                 POLYMARKET TEMP TRACKER
               </h1>
               <p className="text-[11px] uppercase tracking-widest text-muted-foreground">
-                Daily Temperature Bet Monitor
+                Live Daily Temperature Bets · Unfulfilled Only
               </p>
             </div>
           </div>
@@ -53,7 +52,7 @@ const Index = () => {
         {/* Status Bar */}
         <div className="mb-6">
           <StatusBar
-            totalBets={bets?.length ?? 0}
+            totalBets={events?.length ?? 0}
             newSignals={newSignals}
             lastRefresh={lastRefresh}
             userTimezone={userTimezone}
@@ -72,33 +71,31 @@ const Index = () => {
           <div className="flex flex-col items-center justify-center py-20">
             <AlertTriangle className="mb-3 h-6 w-6 text-destructive" />
             <p className="text-sm text-destructive">Failed to fetch data from Polymarket</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              The API may be rate-limited or unavailable. Try refreshing.
-            </p>
+            <p className="mt-1 text-xs text-muted-foreground">Try refreshing in a moment.</p>
           </div>
         )}
 
-        {!isLoading && !error && bets && bets.length === 0 && (
+        {!isLoading && !error && events && events.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20">
             <Thermometer className="mb-3 h-6 w-6 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">No active temperature bets found</p>
+            <p className="text-sm text-muted-foreground">No unfulfilled temperature bets found</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              New temperature markets will appear here automatically when they go live.
+              All current temperature markets have reached 100% resolution.
             </p>
           </div>
         )}
 
-        {bets && bets.length > 0 && (
+        {events && events.length > 0 && (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {bets.map((bet) => (
-              <TemperatureBetCard key={bet.id} bet={bet} userTimezone={userTimezone} />
+            {events.map((event) => (
+              <TemperatureBetCard key={event.id} event={event} userTimezone={userTimezone} />
             ))}
           </div>
         )}
 
         {/* Footer */}
         <div className="mt-8 border-t border-border pt-4 text-center text-[10px] uppercase tracking-widest text-muted-foreground">
-          Data sourced from Polymarket Gamma API · Auto-refreshes every 60s
+          Data from Polymarket Gamma API · Auto-refreshes every 60s · Showing only unfulfilled markets
         </div>
       </div>
     </div>
