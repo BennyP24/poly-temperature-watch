@@ -4,6 +4,7 @@ export interface CityWeather {
   currentTemp: number | null;
   highestRecorded: number | null;
   forecastHigh: number | null;
+  yesterdayHigh: number | null;
   peakHour: number | null;
   currentHour: number;
   pastPeak: boolean;
@@ -28,7 +29,7 @@ export function useWeatherData(cities: string[]) {
       if (!response.ok) throw new Error(`Weather fetch failed: ${response.status}`);
       return response.json();
     },
-    refetchInterval: 5 * 60_000, // every 5 minutes
+    refetchInterval: 5 * 60_000,
     staleTime: 2 * 60_000,
     enabled: cities.length > 0,
   });
