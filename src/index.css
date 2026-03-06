@@ -39,6 +39,7 @@
     --signal-new: 145 70% 50%;
     --signal-live: 185 80% 55%;
     --signal-pulse: 35 95% 60%;
+    --signal-resolved: 145 70% 45%;
 
     --sidebar-background: 220 18% 10%;
     --sidebar-foreground: 200 20% 90%;

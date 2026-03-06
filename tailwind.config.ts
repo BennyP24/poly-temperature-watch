@@ -55,6 +55,7 @@ export default {
           new: "hsl(var(--signal-new))",
           live: "hsl(var(--signal-live))",
           pulse: "hsl(var(--signal-pulse))",
+          resolved: "hsl(var(--signal-resolved))",
         },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",

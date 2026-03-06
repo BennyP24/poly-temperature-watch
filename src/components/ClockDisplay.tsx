@@ -39,14 +39,14 @@ export function ClockDisplay({ timezone, label, variant = "default" }: ClockDisp
         : "text-foreground";
 
   return (
-    <div className="flex flex-col items-center gap-1">
-      <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+    <div className="flex flex-col items-center gap-0.5 sm:gap-1">
+      <span className="text-[9px] sm:text-[10px] uppercase tracking-widest text-muted-foreground truncate max-w-full">
         {label}
       </span>
-      <span className={`text-lg font-semibold tabular-nums ${colorClass}`}>
+      <span className={`text-base sm:text-lg font-semibold tabular-nums ${colorClass}`}>
         {time}
       </span>
-      <span className="text-[10px] text-muted-foreground">{timezone}</span>
+      <span className="text-[9px] sm:text-[10px] text-muted-foreground truncate max-w-full">{timezone}</span>
     </div>
   );
 }
