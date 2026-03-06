@@ -59,7 +59,8 @@ Deno.serve(async (req) => {
       }
 
       try {
-        const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=temperature_2m&hourly=temperature_2m&timezone=${encodeURIComponent(coords.tz)}&forecast_days=2`;
+        // Request Fahrenheit directly from API and include past_days=1 for yesterday data
+        const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=temperature_2m&hourly=temperature_2m&timezone=${encodeURIComponent(coords.tz)}&forecast_days=2&past_days=1&temperature_unit=fahrenheit`;
         const resp = await fetch(apiUrl);
         const data = await resp.json();
 
@@ -67,21 +68,29 @@ Deno.serve(async (req) => {
         const hourlyTimes: string[] = data.hourly?.time || [];
         const hourlyTemps: number[] = data.hourly?.temperature_2m || [];
 
-        // Get today's date in the city's timezone
+        // Get today's and yesterday's date in the city's timezone
         const now = new Date();
-        const todayStr = now.toLocaleDateString("en-CA", { timeZone: coords.tz }); // YYYY-MM-DD
+        const todayStr = now.toLocaleDateString("en-CA", { timeZone: coords.tz });
+        const yesterday = new Date(now.getTime() - 86400000);
+        const yesterdayStr = yesterday.toLocaleDateString("en-CA", { timeZone: coords.tz });
         const currentHour = parseInt(now.toLocaleTimeString("en-US", { timeZone: coords.tz, hour: "numeric", hour12: false }));
 
-        // Filter to today's hours only
+        // Today's temps
         const todayTemps: { hour: number; temp: number }[] = [];
+        // Yesterday's temps
+        const yesterdayTemps: { hour: number; temp: number }[] = [];
+
         for (let i = 0; i < hourlyTimes.length; i++) {
-          if (hourlyTimes[i].startsWith(todayStr)) {
-            const hour = parseInt(hourlyTimes[i].split("T")[1].split(":")[0]);
+          const dateStr = hourlyTimes[i].split("T")[0];
+          const hour = parseInt(hourlyTimes[i].split("T")[1].split(":")[0]);
+          if (dateStr === todayStr) {
             todayTemps.push({ hour, temp: hourlyTemps[i] });
+          } else if (dateStr === yesterdayStr) {
+            yesterdayTemps.push({ hour, temp: hourlyTemps[i] });
           }
         }
 
-        // Highest recorded so far (up to current hour)
+        // Highest recorded so far today (up to current hour)
         const recordedTemps = todayTemps.filter(t => t.hour <= currentHour);
         const highestRecorded = recordedTemps.length > 0 
           ? Math.max(...recordedTemps.map(t => t.temp)) 
@@ -92,17 +101,26 @@ Deno.serve(async (req) => {
           ? Math.max(...todayTemps.map(t => t.temp)) 
           : null;
 
-        // Find the hour of peak temperature in forecast
+        // Peak hour
         const peakHour = todayTemps.length > 0
           ? todayTemps.reduce((max, t) => t.temp > max.temp ? t : max, todayTemps[0]).hour
           : null;
 
         const pastPeak = peakHour !== null && currentHour > peakHour;
 
+        // Yesterday's highest (full day, already complete)
+        const yesterdayHigh = yesterdayTemps.length > 0
+          ? Math.max(...yesterdayTemps.map(t => t.temp))
+          : null;
+
+        // Return with 3 decimal precision (°F)
+        const round3 = (v: number | null) => v !== null ? Math.round(v * 1000) / 1000 : null;
+
         results[city] = {
-          currentTemp: currentTemp !== null ? Math.round(currentTemp * 10) / 10 : null,
-          highestRecorded: highestRecorded !== null ? Math.round(highestRecorded * 10) / 10 : null,
-          forecastHigh: forecastHigh !== null ? Math.round(forecastHigh * 10) / 10 : null,
+          currentTemp: round3(currentTemp),
+          highestRecorded: round3(highestRecorded),
+          forecastHigh: round3(forecastHigh),
+          yesterdayHigh: round3(yesterdayHigh),
           peakHour,
           currentHour,
           pastPeak,

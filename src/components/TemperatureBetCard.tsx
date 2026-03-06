@@ -2,7 +2,7 @@ import type { TemperatureEvent } from "@/lib/polymarket";
 import type { CityWeather } from "@/hooks/useWeatherData";
 import { SignalBadge } from "./SignalBadge";
 import { ClockDisplay } from "./ClockDisplay";
-import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp } from "lucide-react";
+import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, DollarSign } from "lucide-react";
 
 interface TemperatureBetCardProps {
   event: TemperatureEvent;
@@ -10,8 +10,37 @@ interface TemperatureBetCardProps {
   weather?: CityWeather;
 }
 
+/**
+ * Parse temperature range from a groupItemTitle like "49.0°F or below" or "50.0°F to 52.9°F"
+ * Returns [low, high] bounds in °F. For "or below" → [-Infinity, X], for "or above" → [X, Infinity]
+ */
+function parseTempRange(title: string): [number, number] | null {
+  // "X°F or below"
+  const belowMatch = title.match(/([\d.]+)\s*°?\s*F?\s+or\s+below/i);
+  if (belowMatch) return [-Infinity, parseFloat(belowMatch[1])];
+
+  // "X°F or above"
+  const aboveMatch = title.match(/([\d.]+)\s*°?\s*F?\s+or\s+above/i);
+  if (aboveMatch) return [parseFloat(aboveMatch[1]), Infinity];
+
+  // "X°F to Y°F"
+  const rangeMatch = title.match(/([\d.]+)\s*°?\s*F?\s+to\s+([\d.]+)\s*°?\s*F?/i);
+  if (rangeMatch) return [parseFloat(rangeMatch[1]), parseFloat(rangeMatch[2])];
+
+  return null;
+}
+
+function isCorrectAnswer(title: string, highTemp: number | null): boolean {
+  if (highTemp === null) return false;
+  const range = parseTempRange(title);
+  if (!range) return false;
+  return highTemp >= range[0] && highTemp <= range[1];
+}
+
 export function TemperatureBetCard({ event, userTimezone, weather }: TemperatureBetCardProps) {
   const pastPeak = weather?.pastPeak ?? false;
+  // Use highest recorded temp for matching
+  const highTemp = weather?.highestRecorded ?? null;
 
   return (
     <div
@@ -54,34 +83,32 @@ export function TemperatureBetCard({ event, userTimezone, weather }: Temperature
         <span className="truncate">{event.location}</span>
       </div>
 
-      {/* Weather data */}
+      {/* Weather data in °F with 3 decimal places */}
       {weather && !weather.error && (
         <div className="mb-2 sm:mb-3 grid grid-cols-3 gap-1.5 sm:gap-2 rounded-sm border border-border bg-muted/50 p-2 sm:p-3">
           <div className="flex flex-col items-center gap-0.5">
             <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">Now</span>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5">
               <Thermometer className="h-3 w-3 text-accent" />
-              <span className="text-sm sm:text-base font-bold text-accent tabular-nums">
-                {weather.currentTemp !== null ? `${weather.currentTemp}°` : "--"}
+              <span className="text-[11px] sm:text-sm font-bold text-accent tabular-nums">
+                {weather.currentTemp !== null ? `${weather.currentTemp.toFixed(3)}°F` : "--"}
               </span>
             </div>
           </div>
           <div className="flex flex-col items-center gap-0.5">
             <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">High</span>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5">
               <TrendingUp className="h-3 w-3 text-destructive" />
-              <span className="text-sm sm:text-base font-bold text-destructive tabular-nums">
-                {weather.highestRecorded !== null ? `${weather.highestRecorded}°` : "--"}
+              <span className="text-[11px] sm:text-sm font-bold text-destructive tabular-nums">
+                {weather.highestRecorded !== null ? `${weather.highestRecorded.toFixed(3)}°F` : "--"}
               </span>
             </div>
           </div>
           <div className="flex flex-col items-center gap-0.5">
             <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">Forecast</span>
-            <div className="flex items-center gap-1">
-              <span className="text-sm sm:text-base font-bold text-foreground tabular-nums">
-                {weather.forecastHigh !== null ? `${weather.forecastHigh}°` : "--"}
-              </span>
-            </div>
+            <span className="text-[11px] sm:text-sm font-bold text-foreground tabular-nums">
+              {weather.forecastHigh !== null ? `${weather.forecastHigh.toFixed(3)}°F` : "--"}
+            </span>
           </div>
         </div>
       )}
@@ -93,34 +120,63 @@ export function TemperatureBetCard({ event, userTimezone, weather }: Temperature
         <ClockDisplay timezone="UTC" label="PM" variant="accent" />
       </div>
 
-      {/* Markets / Odds table */}
+      {/* Markets / Odds table with correct answer highlighting & profit % */}
       <div className="mb-2 sm:mb-3 space-y-1">
         <div className="flex items-center justify-between text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">
           <span>Temp Range</span>
-          <span>Yes Price</span>
+          <div className="flex gap-3">
+            <span>Price</span>
+            <span>Profit</span>
+          </div>
         </div>
-        <div className="max-h-32 sm:max-h-40 space-y-0.5 overflow-y-auto">
+        <div className="max-h-40 sm:max-h-52 space-y-0.5 overflow-y-auto">
           {event.markets
             .sort((a, b) => b.yesPrice - a.yesPrice)
-            .map((m) => (
-              <div
-                key={m.id}
-                className="flex items-center justify-between rounded-sm bg-muted/30 px-1.5 sm:px-2 py-0.5 sm:py-1"
-              >
-                <span className="text-[11px] sm:text-xs text-foreground truncate mr-2">{m.groupItemTitle}</span>
-                <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-                  <div className="h-1 w-10 sm:w-16 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-primary"
-                      style={{ width: `${m.yesPrice * 100}%` }}
-                    />
+            .map((m) => {
+              const correct = isCorrectAnswer(m.groupItemTitle, highTemp);
+              const profitPct = m.yesPrice > 0 ? ((1 - m.yesPrice) / m.yesPrice) * 100 : 0;
+
+              return (
+                <div
+                  key={m.id}
+                  className={`flex items-center justify-between rounded-sm px-1.5 sm:px-2 py-1 sm:py-1.5 transition-colors ${
+                    correct
+                      ? "bg-[hsl(var(--signal-resolved)/0.15)] border border-[hsl(var(--signal-resolved)/0.5)]"
+                      : "bg-muted/30"
+                  }`}
+                >
+                  <div className="flex items-center gap-1 min-w-0 mr-2">
+                    {correct && (
+                      <span className="text-[9px] font-bold text-[hsl(var(--signal-resolved))]">✓</span>
+                    )}
+                    <span className={`text-[11px] sm:text-xs truncate ${correct ? "font-semibold text-[hsl(var(--signal-resolved))]" : "text-foreground"}`}>
+                      {m.groupItemTitle}
+                    </span>
                   </div>
-                  <span className="w-8 sm:w-10 text-right text-[11px] sm:text-xs tabular-nums text-primary">
-                    {(m.yesPrice * 100).toFixed(1)}¢
-                  </span>
+                  <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+                    <div className="flex items-center gap-1">
+                      <div className="h-1 w-8 sm:w-12 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className={`h-full rounded-full ${correct ? "bg-[hsl(var(--signal-resolved))]" : "bg-primary"}`}
+                          style={{ width: `${m.yesPrice * 100}%` }}
+                        />
+                      </div>
+                      <span className={`w-8 sm:w-10 text-right text-[10px] sm:text-xs tabular-nums ${correct ? "text-[hsl(var(--signal-resolved))] font-semibold" : "text-primary"}`}>
+                        {(m.yesPrice * 100).toFixed(1)}¢
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                      <DollarSign className="h-2.5 w-2.5 text-muted-foreground" />
+                      <span className={`w-10 sm:w-12 text-right text-[10px] sm:text-xs tabular-nums ${
+                        correct ? "text-[hsl(var(--signal-resolved))] font-bold" : "text-muted-foreground"
+                      }`}>
+                        +{profitPct.toFixed(0)}%
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
         </div>
       </div>
 

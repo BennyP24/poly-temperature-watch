@@ -92,18 +92,57 @@ const Index = () => {
           </div>
         )}
 
-        {events && events.length > 0 && (
-          <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-            {events.map((event) => (
-              <TemperatureBetCard
-                key={event.id}
-                event={event}
-                userTimezone={userTimezone}
-                weather={weatherData?.[event.location.toLowerCase().trim()]}
-              />
-            ))}
-          </div>
-        )}
+        {events && events.length > 0 && (() => {
+          // Sort: yesterday's bets first, then today's, then older
+          const now = new Date();
+          const todayStr = now.toISOString().split("T")[0];
+          const yesterday = new Date(now.getTime() - 86400000);
+          const yesterdayStr = yesterday.toISOString().split("T")[0];
+
+          const sorted = [...events].sort((a, b) => {
+            const aDate = (a.endDate || a.createdAt || "").split("T")[0];
+            const bDate = (b.endDate || b.createdAt || "").split("T")[0];
+            const aIsYesterday = aDate === yesterdayStr ? 0 : 1;
+            const bIsYesterday = bDate === yesterdayStr ? 0 : 1;
+            if (aIsYesterday !== bIsYesterday) return aIsYesterday - bIsYesterday;
+            const aIsToday = aDate === todayStr ? 0 : 1;
+            const bIsToday = bDate === todayStr ? 0 : 1;
+            if (aIsToday !== bIsToday) return aIsToday - bIsToday;
+            return new Date(b.endDate).getTime() - new Date(a.endDate).getTime();
+          });
+
+          // Group by date for section headers
+          let lastDateLabel = "";
+          return (
+            <div className="space-y-3 sm:space-y-4">
+              {sorted.map((event) => {
+                const dateStr = (event.endDate || event.createdAt || "").split("T")[0];
+                let dateLabel = "";
+                if (dateStr === yesterdayStr) dateLabel = "Yesterday's Bets";
+                else if (dateStr === todayStr) dateLabel = "Today's Bets";
+                else dateLabel = `Bets for ${dateStr}`;
+
+                const showHeader = dateLabel !== lastDateLabel;
+                lastDateLabel = dateLabel;
+
+                return (
+                  <div key={event.id}>
+                    {showHeader && (
+                      <h2 className="mb-2 mt-4 first:mt-0 text-xs sm:text-sm font-bold uppercase tracking-wider text-primary">
+                        {dateLabel}
+                      </h2>
+                    )}
+                    <TemperatureBetCard
+                      event={event}
+                      userTimezone={userTimezone}
+                      weather={weatherData?.[event.location.toLowerCase().trim()]}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {/* Footer */}
         <div className="mt-6 sm:mt-8 border-t border-border pt-3 sm:pt-4 text-center text-[9px] sm:text-[10px] uppercase tracking-widest text-muted-foreground">
