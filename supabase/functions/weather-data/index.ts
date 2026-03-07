@@ -6,7 +6,6 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// City coordinates for Open-Meteo
 const CITY_COORDS: Record<string, { lat: number; lon: number; tz: string }> = {
   munich: { lat: 48.14, lon: 11.58, tz: "Europe/Berlin" },
   london: { lat: 51.51, lon: -0.13, tz: "Europe/London" },
@@ -31,7 +30,46 @@ const CITY_COORDS: Record<string, { lat: number; lon: number; tz: string }> = {
   toronto: { lat: 43.65, lon: -79.38, tz: "America/Toronto" },
   vancouver: { lat: 49.28, lon: -123.12, tz: "America/Vancouver" },
   melbourne: { lat: -37.81, lon: 144.96, tz: "Australia/Melbourne" },
+  seoul: { lat: 37.57, lon: 126.98, tz: "Asia/Seoul" },
+  bangkok: { lat: 13.76, lon: 100.50, tz: "Asia/Bangkok" },
+  "phnom penh": { lat: 11.56, lon: 104.92, tz: "Asia/Phnom_Penh" },
+  "ho chi minh": { lat: 10.82, lon: 106.63, tz: "Asia/Ho_Chi_Minh" },
+  "kuala lumpur": { lat: 3.14, lon: 101.69, tz: "Asia/Kuala_Lumpur" },
+  manila: { lat: 14.60, lon: 120.98, tz: "Asia/Manila" },
+  jakarta: { lat: -6.21, lon: 106.85, tz: "Asia/Jakarta" },
+  delhi: { lat: 28.61, lon: 77.21, tz: "Asia/Kolkata" },
+  mumbai: { lat: 19.08, lon: 72.88, tz: "Asia/Kolkata" },
+  "hong kong": { lat: 22.32, lon: 114.17, tz: "Asia/Hong_Kong" },
+  beijing: { lat: 39.90, lon: 116.40, tz: "Asia/Shanghai" },
+  shanghai: { lat: 31.23, lon: 121.47, tz: "Asia/Shanghai" },
+  "san francisco": { lat: 37.77, lon: -122.42, tz: "America/Los_Angeles" },
+  boston: { lat: 42.36, lon: -71.06, tz: "America/New_York" },
+  atlanta: { lat: 33.75, lon: -84.39, tz: "America/New_York" },
+  washington: { lat: 38.91, lon: -77.04, tz: "America/New_York" },
+  "las vegas": { lat: 36.17, lon: -115.14, tz: "America/Los_Angeles" },
+  austin: { lat: 30.27, lon: -97.74, tz: "America/Chicago" },
+  detroit: { lat: 42.33, lon: -83.05, tz: "America/Detroit" },
+  portland: { lat: 45.52, lon: -122.68, tz: "America/Los_Angeles" },
+  "salt lake city": { lat: 40.76, lon: -111.89, tz: "America/Denver" },
+  anchorage: { lat: 61.22, lon: -149.90, tz: "America/Anchorage" },
+  honolulu: { lat: 21.31, lon: -157.86, tz: "Pacific/Honolulu" },
+  moscow: { lat: 55.76, lon: 37.62, tz: "Europe/Moscow" },
+  istanbul: { lat: 41.01, lon: 28.98, tz: "Europe/Istanbul" },
+  cairo: { lat: 30.04, lon: 31.24, tz: "Africa/Cairo" },
+  "sao paulo": { lat: -23.55, lon: -46.63, tz: "America/Sao_Paulo" },
+  "mexico city": { lat: 19.43, lon: -99.13, tz: "America/Mexico_City" },
+  "buenos aires": { lat: -34.60, lon: -58.38, tz: "America/Argentina/Buenos_Aires" },
+  zurich: { lat: 47.37, lon: 8.54, tz: "Europe/Zurich" },
+  auckland: { lat: -36.85, lon: 174.76, tz: "Pacific/Auckland" },
+  brisbane: { lat: -27.47, lon: 153.03, tz: "Australia/Brisbane" },
+  perth: { lat: -31.95, lon: 115.86, tz: "Australia/Perth" },
+  calgary: { lat: 51.05, lon: -114.07, tz: "America/Edmonton" },
+  montreal: { lat: 45.50, lon: -73.57, tz: "America/Toronto" },
 };
+
+function fToC(f: number): number {
+  return (f - 32) * 5 / 9;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -59,25 +97,21 @@ Deno.serve(async (req) => {
       }
 
       try {
-        // Request Fahrenheit directly from API and include past_days=1 for yesterday data
         const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=temperature_2m&hourly=temperature_2m&timezone=${encodeURIComponent(coords.tz)}&forecast_days=2&past_days=1&temperature_unit=fahrenheit`;
         const resp = await fetch(apiUrl);
         const data = await resp.json();
 
-        const currentTemp = data.current?.temperature_2m ?? null;
+        const currentTempF = data.current?.temperature_2m ?? null;
         const hourlyTimes: string[] = data.hourly?.time || [];
         const hourlyTemps: number[] = data.hourly?.temperature_2m || [];
 
-        // Get today's and yesterday's date in the city's timezone
         const now = new Date();
         const todayStr = now.toLocaleDateString("en-CA", { timeZone: coords.tz });
         const yesterday = new Date(now.getTime() - 86400000);
         const yesterdayStr = yesterday.toLocaleDateString("en-CA", { timeZone: coords.tz });
         const currentHour = parseInt(now.toLocaleTimeString("en-US", { timeZone: coords.tz, hour: "numeric", hour12: false }));
 
-        // Today's temps
         const todayTemps: { hour: number; temp: number }[] = [];
-        // Yesterday's temps
         const yesterdayTemps: { hour: number; temp: number }[] = [];
 
         for (let i = 0; i < hourlyTimes.length; i++) {
@@ -90,37 +124,36 @@ Deno.serve(async (req) => {
           }
         }
 
-        // Highest recorded so far today (up to current hour)
         const recordedTemps = todayTemps.filter(t => t.hour <= currentHour);
-        const highestRecorded = recordedTemps.length > 0 
-          ? Math.max(...recordedTemps.map(t => t.temp)) 
+        const highestRecordedF = recordedTemps.length > 0
+          ? Math.max(...recordedTemps.map(t => t.temp))
           : null;
 
-        // Forecast high for the full day
-        const forecastHigh = todayTemps.length > 0 
-          ? Math.max(...todayTemps.map(t => t.temp)) 
+        const forecastHighF = todayTemps.length > 0
+          ? Math.max(...todayTemps.map(t => t.temp))
           : null;
 
-        // Peak hour
         const peakHour = todayTemps.length > 0
           ? todayTemps.reduce((max, t) => t.temp > max.temp ? t : max, todayTemps[0]).hour
           : null;
 
         const pastPeak = peakHour !== null && currentHour > peakHour;
 
-        // Yesterday's highest (full day, already complete)
-        const yesterdayHigh = yesterdayTemps.length > 0
+        const yesterdayHighF = yesterdayTemps.length > 0
           ? Math.max(...yesterdayTemps.map(t => t.temp))
           : null;
 
-        // Return with 3 decimal precision (°F)
         const round3 = (v: number | null) => v !== null ? Math.round(v * 1000) / 1000 : null;
 
         results[city] = {
-          currentTemp: round3(currentTemp),
-          highestRecorded: round3(highestRecorded),
-          forecastHigh: round3(forecastHigh),
-          yesterdayHigh: round3(yesterdayHigh),
+          currentTempF: round3(currentTempF),
+          currentTempC: round3(currentTempF !== null ? fToC(currentTempF) : null),
+          highestRecordedF: round3(highestRecordedF),
+          highestRecordedC: round3(highestRecordedF !== null ? fToC(highestRecordedF) : null),
+          forecastHighF: round3(forecastHighF),
+          forecastHighC: round3(forecastHighF !== null ? fToC(forecastHighF) : null),
+          yesterdayHighF: round3(yesterdayHighF),
+          yesterdayHighC: round3(yesterdayHighF !== null ? fToC(yesterdayHighF) : null),
           peakHour,
           currentHour,
           pastPeak,

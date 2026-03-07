@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { usePolymarketData } from "@/hooks/usePolymarketData";
 import { useWeatherData } from "@/hooks/useWeatherData";
+import { useSavedBets } from "@/hooks/useSavedBets";
 import { StatusBar } from "@/components/StatusBar";
 import { TemperatureBetCard } from "@/components/TemperatureBetCard";
 import { Thermometer, RefreshCw, AlertTriangle } from "lucide-react";
@@ -8,6 +9,7 @@ import { Thermometer, RefreshCw, AlertTriangle } from "lucide-react";
 const Index = () => {
   const { data: events, isLoading, error, dataUpdatedAt, refetch, isFetching } = usePolymarketData();
   const [userTimezone, setUserTimezone] = useState("UTC");
+  const { toggle, isSaved } = useSavedBets();
 
   useEffect(() => {
     try {
@@ -17,7 +19,6 @@ const Index = () => {
     }
   }, []);
 
-  // Extract unique city names for weather fetching
   const cities = useMemo(() => {
     if (!events) return [];
     const set = new Set(events.map((e) => e.location.toLowerCase().trim()));
@@ -28,6 +29,32 @@ const Index = () => {
 
   const newSignals = useMemo(() => events?.filter((e) => e.isNew).length ?? 0, [events]);
   const lastRefresh = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
+
+  const sortedEvents = useMemo(() => {
+    if (!events || events.length === 0) return [];
+
+    const now = new Date();
+    const todayStr = now.toISOString().split("T")[0];
+    const yesterday = new Date(now.getTime() - 86400000);
+    const yesterdayStr = yesterday.toISOString().split("T")[0];
+
+    return [...events].sort((a, b) => {
+      const aDate = (a.endDate || a.createdAt || "").split("T")[0];
+      const bDate = (b.endDate || b.createdAt || "").split("T")[0];
+
+      // Yesterday first, then today, then older
+      const dateRank = (d: string) => d === yesterdayStr ? 0 : d === todayStr ? 1 : 2;
+      const aRank = dateRank(aDate);
+      const bRank = dateRank(bDate);
+      if (aRank !== bRank) return aRank - bRank;
+
+      // Within same date group, priority cities first (Seoul, Cambodia, Thailand, etc.)
+      if (a.priorityRank !== b.priorityRank) return a.priorityRank - b.priorityRank;
+
+      // Then by end date descending
+      return new Date(b.endDate).getTime() - new Date(a.endDate).getTime();
+    });
+  }, [events]);
 
   return (
     <div className="relative min-h-screen bg-background">
@@ -45,7 +72,7 @@ const Index = () => {
                 POLYMARKET TEMP TRACKER
               </h1>
               <p className="text-[9px] sm:text-[11px] uppercase tracking-widest text-muted-foreground truncate">
-                Live Daily Temperature Bets · Unfulfilled Only
+                Daily Temperature Bets · Unfulfilled Only
               </p>
             </div>
           </div>
@@ -73,7 +100,7 @@ const Index = () => {
         {isLoading && (
           <div className="flex flex-col items-center justify-center py-20">
             <RefreshCw className="mb-3 h-6 w-6 animate-spin text-primary" />
-            <p className="text-sm text-muted-foreground">Scanning Polymarket for temperature bets...</p>
+            <p className="text-sm text-muted-foreground">Scanning Polymarket for daily temperature bets...</p>
           </div>
         )}
 
@@ -88,34 +115,20 @@ const Index = () => {
         {!isLoading && !error && events && events.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20">
             <Thermometer className="mb-3 h-6 w-6 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">No unfulfilled temperature bets found</p>
+            <p className="text-sm text-muted-foreground">No unfulfilled daily temperature bets found</p>
           </div>
         )}
 
-        {events && events.length > 0 && (() => {
-          // Sort: yesterday's bets first, then today's, then older
+        {sortedEvents.length > 0 && (() => {
           const now = new Date();
           const todayStr = now.toISOString().split("T")[0];
           const yesterday = new Date(now.getTime() - 86400000);
           const yesterdayStr = yesterday.toISOString().split("T")[0];
 
-          const sorted = [...events].sort((a, b) => {
-            const aDate = (a.endDate || a.createdAt || "").split("T")[0];
-            const bDate = (b.endDate || b.createdAt || "").split("T")[0];
-            const aIsYesterday = aDate === yesterdayStr ? 0 : 1;
-            const bIsYesterday = bDate === yesterdayStr ? 0 : 1;
-            if (aIsYesterday !== bIsYesterday) return aIsYesterday - bIsYesterday;
-            const aIsToday = aDate === todayStr ? 0 : 1;
-            const bIsToday = bDate === todayStr ? 0 : 1;
-            if (aIsToday !== bIsToday) return aIsToday - bIsToday;
-            return new Date(b.endDate).getTime() - new Date(a.endDate).getTime();
-          });
-
-          // Group by date for section headers
           let lastDateLabel = "";
           return (
             <div className="space-y-3 sm:space-y-4">
-              {sorted.map((event) => {
+              {sortedEvents.map((event) => {
                 const dateStr = (event.endDate || event.createdAt || "").split("T")[0];
                 let dateLabel = "";
                 if (dateStr === yesterdayStr) dateLabel = "Yesterday's Bets";
@@ -136,6 +149,8 @@ const Index = () => {
                       event={event}
                       userTimezone={userTimezone}
                       weather={weatherData?.[event.location.toLowerCase().trim()]}
+                      isSaved={isSaved(event.id)}
+                      onToggleSave={() => toggle(event.id)}
                     />
                   </div>
                 );
@@ -146,7 +161,7 @@ const Index = () => {
 
         {/* Footer */}
         <div className="mt-6 sm:mt-8 border-t border-border pt-3 sm:pt-4 text-center text-[9px] sm:text-[10px] uppercase tracking-widest text-muted-foreground">
-          Data from Polymarket Gamma API · Auto-refreshes every 60s · Weather from Open-Meteo
+          Data from Polymarket Gamma API · Auto-refreshes every 60s · Weather from Open-Meteo (2min refresh)
         </div>
       </div>
     </div>

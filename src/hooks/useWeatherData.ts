@@ -1,10 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 
 export interface CityWeather {
-  currentTemp: number | null;
-  highestRecorded: number | null;
-  forecastHigh: number | null;
-  yesterdayHigh: number | null;
+  currentTempF: number | null;
+  currentTempC: number | null;
+  highestRecordedF: number | null;
+  highestRecordedC: number | null;
+  forecastHighF: number | null;
+  forecastHighC: number | null;
+  yesterdayHighF: number | null;
+  yesterdayHighC: number | null;
   peakHour: number | null;
   currentHour: number;
   pastPeak: boolean;
@@ -29,8 +33,8 @@ export function useWeatherData(cities: string[]) {
       if (!response.ok) throw new Error(`Weather fetch failed: ${response.status}`);
       return response.json();
     },
-    refetchInterval: 5 * 60_000,
-    staleTime: 2 * 60_000,
+    refetchInterval: 2 * 60_000, // Refresh every 2 minutes
+    staleTime: 60_000,
     enabled: cities.length > 0,
   });
 }

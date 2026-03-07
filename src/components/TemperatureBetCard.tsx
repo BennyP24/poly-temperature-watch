@@ -1,46 +1,55 @@
+import { useState } from "react";
 import type { TemperatureEvent } from "@/lib/polymarket";
 import type { CityWeather } from "@/hooks/useWeatherData";
 import { SignalBadge } from "./SignalBadge";
 import { ClockDisplay } from "./ClockDisplay";
-import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, DollarSign } from "lucide-react";
+import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, DollarSign, Check } from "lucide-react";
 
 interface TemperatureBetCardProps {
   event: TemperatureEvent;
   userTimezone: string;
   weather?: CityWeather;
+  isSaved: boolean;
+  onToggleSave: () => void;
 }
 
-/**
- * Parse temperature range from a groupItemTitle like "49.0°F or below" or "50.0°F to 52.9°F"
- * Returns [low, high] bounds in °F. For "or below" → [-Infinity, X], for "or above" → [X, Infinity]
- */
 function parseTempRange(title: string): [number, number] | null {
-  // "X°F or below"
   const belowMatch = title.match(/([\d.]+)\s*°?\s*F?\s+or\s+below/i);
   if (belowMatch) return [-Infinity, parseFloat(belowMatch[1])];
-
-  // "X°F or above"
   const aboveMatch = title.match(/([\d.]+)\s*°?\s*F?\s+or\s+above/i);
   if (aboveMatch) return [parseFloat(aboveMatch[1]), Infinity];
-
-  // "X°F to Y°F"
   const rangeMatch = title.match(/([\d.]+)\s*°?\s*F?\s+to\s+([\d.]+)\s*°?\s*F?/i);
   if (rangeMatch) return [parseFloat(rangeMatch[1]), parseFloat(rangeMatch[2])];
-
   return null;
 }
 
-function isCorrectAnswer(title: string, highTemp: number | null): boolean {
-  if (highTemp === null) return false;
+/** Use Math.floor for range matching - 14.8°F counts as 14°F */
+function isCorrectAnswer(title: string, highTempF: number | null): boolean {
+  if (highTempF === null) return false;
+  const floored = Math.floor(highTempF);
   const range = parseTempRange(title);
   if (!range) return false;
-  return highTemp >= range[0] && highTemp <= range[1];
+  return floored >= range[0] && floored <= range[1];
 }
 
-export function TemperatureBetCard({ event, userTimezone, weather }: TemperatureBetCardProps) {
+function fToC(f: number): number {
+  return (f - 32) * 5 / 9;
+}
+
+function formatDual(f: number | null, decimals = 3): string {
+  if (f === null) return "--";
+  return `${f.toFixed(decimals)}°F / ${fToC(f).toFixed(decimals)}°C`;
+}
+
+function formatHour(hour: number): string {
+  const ampm = hour >= 12 ? "PM" : "AM";
+  const h = hour % 12 || 12;
+  return `${h}:00 ${ampm}`;
+}
+
+export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave }: TemperatureBetCardProps) {
   const pastPeak = weather?.pastPeak ?? false;
-  // Use highest recorded temp for matching
-  const highTemp = weather?.highestRecorded ?? null;
+  const highTemp = weather?.highestRecordedF ?? null;
 
   return (
     <div
@@ -67,14 +76,28 @@ export function TemperatureBetCard({ event, userTimezone, weather }: Temperature
             {event.title}
           </h3>
         </div>
-        <a
-          href={event.polymarketUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="shrink-0 rounded-sm p-1 text-muted-foreground transition-colors hover:text-primary"
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-        </a>
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Save tick */}
+          <button
+            onClick={onToggleSave}
+            className={`rounded-sm p-1 transition-colors ${
+              isSaved
+                ? "bg-[hsl(var(--signal-resolved))] text-background"
+                : "text-muted-foreground hover:text-primary border border-border"
+            }`}
+            title={isSaved ? "Saved — click to unsave" : "Save this bet"}
+          >
+            <Check className="h-3.5 w-3.5" />
+          </button>
+          <a
+            href={event.polymarketUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-sm p-1 text-muted-foreground transition-colors hover:text-primary"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        </div>
       </div>
 
       {/* Location */}
@@ -83,33 +106,45 @@ export function TemperatureBetCard({ event, userTimezone, weather }: Temperature
         <span className="truncate">{event.location}</span>
       </div>
 
-      {/* Weather data in °F with 3 decimal places */}
+      {/* Weather data — dual °F / °C */}
       {weather && !weather.error && (
-        <div className="mb-2 sm:mb-3 grid grid-cols-3 gap-1.5 sm:gap-2 rounded-sm border border-border bg-muted/50 p-2 sm:p-3">
-          <div className="flex flex-col items-center gap-0.5">
-            <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">Now</span>
-            <div className="flex items-center gap-0.5">
-              <Thermometer className="h-3 w-3 text-accent" />
-              <span className="text-[11px] sm:text-sm font-bold text-accent tabular-nums">
-                {weather.currentTemp !== null ? `${weather.currentTemp.toFixed(3)}°F` : "--"}
+        <div className="mb-2 sm:mb-3 rounded-sm border border-border bg-muted/50 p-2 sm:p-3 space-y-2">
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">Now</span>
+              <div className="flex items-center gap-0.5">
+                <Thermometer className="h-3 w-3 text-accent" />
+                <span className="text-[10px] sm:text-xs font-bold text-accent tabular-nums">
+                  {formatDual(weather.currentTempF)}
+                </span>
+              </div>
+            </div>
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">High</span>
+              <div className="flex items-center gap-0.5">
+                <TrendingUp className="h-3 w-3 text-destructive" />
+                <span className="text-[10px] sm:text-xs font-bold text-destructive tabular-nums">
+                  {formatDual(weather.highestRecordedF)}
+                </span>
+              </div>
+            </div>
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">Forecast</span>
+              <span className="text-[10px] sm:text-xs font-bold text-foreground tabular-nums">
+                {formatDual(weather.forecastHighF)}
               </span>
             </div>
           </div>
-          <div className="flex flex-col items-center gap-0.5">
-            <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">High</span>
-            <div className="flex items-center gap-0.5">
-              <TrendingUp className="h-3 w-3 text-destructive" />
-              <span className="text-[11px] sm:text-sm font-bold text-destructive tabular-nums">
-                {weather.highestRecorded !== null ? `${weather.highestRecorded.toFixed(3)}°F` : "--"}
+          {/* Peak hour indicator */}
+          {weather.peakHour !== null && (
+            <div className="flex items-center justify-center gap-1.5 text-[10px] sm:text-xs">
+              <TrendingDown className="h-3 w-3 text-muted-foreground" />
+              <span className="text-muted-foreground">
+                Temp drops after <span className="font-semibold text-foreground">{formatHour(weather.peakHour)}</span> local
+                {pastPeak && <span className="ml-1 text-[hsl(var(--signal-resolved))] font-bold">· COOLING</span>}
               </span>
             </div>
-          </div>
-          <div className="flex flex-col items-center gap-0.5">
-            <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">Forecast</span>
-            <span className="text-[11px] sm:text-sm font-bold text-foreground tabular-nums">
-              {weather.forecastHigh !== null ? `${weather.forecastHigh.toFixed(3)}°F` : "--"}
-            </span>
-          </div>
+          )}
         </div>
       )}
 
@@ -120,7 +155,7 @@ export function TemperatureBetCard({ event, userTimezone, weather }: Temperature
         <ClockDisplay timezone="UTC" label="PM" variant="accent" />
       </div>
 
-      {/* Markets / Odds table with correct answer highlighting & profit % */}
+      {/* Markets / Odds — floor temp for matching */}
       <div className="mb-2 sm:mb-3 space-y-1">
         <div className="flex items-center justify-between text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">
           <span>Temp Range</span>
@@ -149,7 +184,7 @@ export function TemperatureBetCard({ event, userTimezone, weather }: Temperature
                     {correct && (
                       <span className="text-[9px] font-bold text-[hsl(var(--signal-resolved))]">✓</span>
                     )}
-                    <span className={`text-[11px] sm:text-xs truncate ${correct ? "font-semibold text-[hsl(var(--signal-resolved))]" : "text-foreground"}`}>
+                    <span className={`text-[10px] sm:text-xs truncate ${correct ? "font-semibold text-[hsl(var(--signal-resolved))]" : "text-foreground"}`}>
                       {m.groupItemTitle}
                     </span>
                   </div>
@@ -214,7 +249,6 @@ export function TemperatureBetCard({ event, userTimezone, weather }: Temperature
         </div>
       )}
 
-      {/* Additional reference links */}
       {event.referenceLinks.length > 1 && (
         <div className="mt-1 space-y-0.5">
           {event.referenceLinks.slice(1).map((link, i) => (
