@@ -3,7 +3,7 @@ import type { TemperatureEvent } from "@/lib/polymarket";
 import type { CityWeather } from "@/hooks/useWeatherData";
 import { SignalBadge } from "./SignalBadge";
 import { ClockDisplay } from "./ClockDisplay";
-import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, DollarSign, Check } from "lucide-react";
+import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, DollarSign, Check, Copy, Eye, BarChart3 } from "lucide-react";
 
 interface TemperatureBetCardProps {
   event: TemperatureEvent;
@@ -11,6 +11,8 @@ interface TemperatureBetCardProps {
   weather?: CityWeather;
   isSaved: boolean;
   onToggleSave: () => void;
+  refNumber: number;
+  isObservation: boolean;
 }
 
 function parseTempRange(title: string): [number, number] | null {
@@ -23,7 +25,6 @@ function parseTempRange(title: string): [number, number] | null {
   return null;
 }
 
-/** Use Math.floor for range matching - 14.8°F counts as 14°F */
 function isCorrectAnswer(title: string, highTempF: number | null): boolean {
   if (highTempF === null) return false;
   const floored = Math.floor(highTempF);
@@ -47,26 +48,57 @@ function formatHour(hour: number): string {
   return `${h}:00 ${ampm}`;
 }
 
-export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave }: TemperatureBetCardProps) {
+export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, refNumber, isObservation }: TemperatureBetCardProps) {
   const pastPeak = weather?.pastPeak ?? false;
   const highTemp = weather?.highestRecordedF ?? null;
+  const [copied, setCopied] = useState(false);
+
+  const refId = `#T${String(refNumber).padStart(3, "0")}`;
+
+  const copyRef = () => {
+    navigator.clipboard.writeText(refId);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  const dataLabel = isObservation ? "OBSERVATION" : "FORECAST";
 
   return (
     <div
       className={`relative rounded-md border bg-card p-3 sm:p-4 transition-all hover:border-primary/30 ${
-        pastPeak
+        pastPeak && isObservation
           ? "border-[hsl(var(--signal-resolved))] shadow-[0_0_12px_hsl(var(--signal-resolved)/0.25)]"
           : event.isNew
             ? "border-signal-new/40 shadow-[0_0_15px_hsl(var(--signal-new)/0.1)]"
             : "border-border"
       }`}
     >
-      {/* Past peak badge */}
-      {pastPeak && (
+      {/* Past peak badge — only for observations */}
+      {pastPeak && isObservation && (
         <div className="absolute -top-2 right-3 rounded-sm bg-[hsl(var(--signal-resolved))] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-background">
           Past Peak
         </div>
       )}
+
+      {/* Ref number + data type badge */}
+      <div className="mb-2 flex items-center gap-2">
+        <button
+          onClick={copyRef}
+          className="flex items-center gap-1 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] sm:text-xs font-mono font-bold text-primary transition-colors hover:bg-primary hover:text-primary-foreground"
+          title={`Copy reference ${refId}`}
+        >
+          {refId}
+          {copied ? <Check className="h-2.5 w-2.5" /> : <Copy className="h-2.5 w-2.5" />}
+        </button>
+        <span className={`flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+          isObservation
+            ? "bg-accent/20 text-accent"
+            : "bg-primary/20 text-primary"
+        }`}>
+          {isObservation ? <Eye className="h-2.5 w-2.5" /> : <BarChart3 className="h-2.5 w-2.5" />}
+          {dataLabel}
+        </span>
+      </div>
 
       {/* Header */}
       <div className="mb-2 sm:mb-3 flex items-start justify-between gap-2 sm:gap-3">
@@ -77,7 +109,6 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
           </h3>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          {/* Save tick */}
           <button
             onClick={onToggleSave}
             className={`rounded-sm p-1 transition-colors ${
@@ -120,23 +151,27 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
               </div>
             </div>
             <div className="flex flex-col items-center gap-0.5">
-              <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">High</span>
+              <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">
+                {isObservation ? "High" : "Fcst High"}
+              </span>
               <div className="flex items-center gap-0.5">
                 <TrendingUp className="h-3 w-3 text-destructive" />
                 <span className="text-[10px] sm:text-xs font-bold text-destructive tabular-nums">
-                  {formatDual(weather.highestRecordedF)}
+                  {formatDual(isObservation ? weather.highestRecordedF : weather.forecastHighF)}
                 </span>
               </div>
             </div>
             <div className="flex flex-col items-center gap-0.5">
-              <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">Forecast</span>
+              <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">
+                {isObservation ? "Forecast" : "Avg"}
+              </span>
               <span className="text-[10px] sm:text-xs font-bold text-foreground tabular-nums">
                 {formatDual(weather.forecastHighF)}
               </span>
             </div>
           </div>
-          {/* Peak hour indicator */}
-          {weather.peakHour !== null && (
+          {/* Peak hour indicator — only for observations */}
+          {isObservation && weather.peakHour !== null && (
             <div className="flex items-center justify-center gap-1.5 text-[10px] sm:text-xs">
               <TrendingDown className="h-3 w-3 text-muted-foreground" />
               <span className="text-muted-foreground">
@@ -155,7 +190,7 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
         <ClockDisplay timezone="UTC" label="PM" variant="accent" />
       </div>
 
-      {/* Markets / Odds — floor temp for matching */}
+      {/* Markets / Odds */}
       <div className="mb-2 sm:mb-3 space-y-1">
         <div className="flex items-center justify-between text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">
           <span>Temp Range</span>
@@ -168,7 +203,7 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
           {event.markets
             .sort((a, b) => b.yesPrice - a.yesPrice)
             .map((m) => {
-              const correct = isCorrectAnswer(m.groupItemTitle, highTemp);
+              const correct = isObservation && isCorrectAnswer(m.groupItemTitle, highTemp);
               const profitPct = m.yesPrice > 0 ? ((1 - m.yesPrice) / m.yesPrice) * 100 : 0;
 
               return (
