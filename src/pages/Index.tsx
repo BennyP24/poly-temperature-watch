@@ -126,14 +126,17 @@ const Index = () => {
           const yesterdayStr = yesterday.toISOString().split("T")[0];
 
           let lastDateLabel = "";
+          let refCounter = 0;
           return (
             <div className="space-y-3 sm:space-y-4">
               {sortedEvents.map((event) => {
+                refCounter++;
                 const dateStr = (event.endDate || event.createdAt || "").split("T")[0];
+                const isObservation = dateStr <= todayStr;
                 let dateLabel = "";
-                if (dateStr === yesterdayStr) dateLabel = "Yesterday's Bets";
-                else if (dateStr === todayStr) dateLabel = "Today's Bets";
-                else dateLabel = `Bets for ${dateStr}`;
+                if (dateStr === yesterdayStr) dateLabel = "Yesterday's Bets · OBSERVATION";
+                else if (dateStr === todayStr) dateLabel = "Today's Bets · OBSERVATION";
+                else dateLabel = `Bets for ${dateStr} · FORECAST`;
 
                 const showHeader = dateLabel !== lastDateLabel;
                 lastDateLabel = dateLabel;
@@ -151,6 +154,8 @@ const Index = () => {
                       weather={weatherData?.[event.location.toLowerCase().trim()]}
                       isSaved={isSaved(event.id)}
                       onToggleSave={() => toggle(event.id)}
+                      refNumber={refCounter}
+                      isObservation={isObservation}
                     />
                   </div>
                 );
