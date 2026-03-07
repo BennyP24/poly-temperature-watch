@@ -64,17 +64,18 @@ const CITY_TIMEZONES: Record<string, string> = {
   "calgary": "America/Edmonton",
   "montreal": "America/Toronto",
   "ottawa": "America/Toronto",
+  "phnom penh": "Asia/Phnom_Penh",
+  "ho chi minh": "Asia/Ho_Chi_Minh",
 };
 
+// Priority cities that should appear first (Asian cities ahead in time)
+const PRIORITY_CITIES = ["seoul", "phnom penh", "bangkok", "ho chi minh", "tokyo", "beijing", "shanghai", "hong kong", "singapore", "manila", "jakarta", "kuala lumpur"];
+
 function extractLocation(title: string): string {
-  // Match patterns like "temperature in Munich" or "temperature in New York"
   const match = title.match(/(?:temperature|temp)\s+in\s+([A-Za-z\s]+?)(?:\s+(?:be|on|exceed|above|below|reach|hit))/i);
   if (match?.[1]) return match[1].trim();
-
-  // Try from event title like "Highest Temperature in Munich on March 6"
   const match2 = title.match(/in\s+([A-Za-z\s]+?)(?:\s+on\s)/i);
   if (match2?.[1]) return match2[1].trim();
-
   return "Unknown";
 }
 
@@ -89,6 +90,29 @@ function getTimezone(location: string): string {
 function extractLinks(description: string): string[] {
   const urlRegex = /https?:\/\/[^\s)<>"\\]+/g;
   return description.match(urlRegex) || [];
+}
+
+function isPriorityCity(location: string): number {
+  const lower = location.toLowerCase().trim();
+  for (let i = 0; i < PRIORITY_CITIES.length; i++) {
+    if (lower.includes(PRIORITY_CITIES[i])) return i;
+  }
+  return PRIORITY_CITIES.length + 1;
+}
+
+/**
+ * Check if this is a DAILY temperature bet (not weekly, monthly, etc.)
+ */
+function isDailyTemperatureBet(title: string): boolean {
+  const lower = title.toLowerCase();
+  // Must mention temperature
+  if (!lower.includes("temperature") && !lower.includes("°f") && !lower.includes("°c")) return false;
+  // Must mention a specific date pattern like "March 6" or "on March" or day-specific
+  if (/\b(march|april|may|june|july|august|september|october|november|december|january|february)\s+\d{1,2}\b/i.test(title)) return true;
+  if (/\bon\s+(march|april|may|june|july|august|september|october|november|december|january|february)/i.test(title)) return true;
+  // Fallback: has "daily" or "highest" or specific date
+  if (lower.includes("daily") || lower.includes("highest")) return true;
+  return false;
 }
 
 export interface TemperatureEvent {
@@ -108,6 +132,7 @@ export interface TemperatureEvent {
   polymarketUrl: string;
   isNew: boolean;
   markets: TemperatureMarket[];
+  priorityRank: number;
 }
 
 export interface TemperatureMarket {
@@ -119,22 +144,10 @@ export interface TemperatureMarket {
   volume: number;
   active: boolean;
   closed: boolean;
-  isFulfilled: boolean; // 100% on one side
-}
-
-async function callProxy(endpoint: string, params: string) {
-  const { data, error } = await supabase.functions.invoke("polymarket-proxy", {
-    method: "GET",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ endpoint, params }),
-  });
-
-  if (error) throw error;
-  return data;
+  isFulfilled: boolean;
 }
 
 export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
-  // Use GET with query params through the proxy
   const response = await fetch(
     `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/polymarket-proxy?endpoint=events&params=${encodeURIComponent("active=true&closed=false&limit=100&order=createdAt&ascending=false&tag_slug=weather")}`,
     {
@@ -153,10 +166,10 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
 
   return events
     .filter((e: any) => {
-      // Must be active, not closed, and temperature-related
       if (e.closed) return false;
-      const text = `${e.title || ""} ${e.description || ""}`.toLowerCase();
-      return text.includes("temperature") || text.includes("°c") || text.includes("°f");
+      const title = e.title || "";
+      // Only daily temperature bets
+      return isDailyTemperatureBet(title);
     })
     .map((event: any) => {
       const title = event.title || "";
@@ -192,7 +205,6 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
           };
         });
 
-      // Filter out events where ALL markets are fulfilled (100%)
       const hasUnfulfilled = markets.some((m) => !m.isFulfilled);
 
       return {
@@ -211,7 +223,8 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
         liquidity: event.liquidity || event.liquidityClob || 0,
         polymarketUrl: `https://polymarket.com/event/${event.slug}`,
         isNew: new Date(event.createdAt) > oneDayAgo,
-        markets: markets.filter((m) => !m.isFulfilled), // Only show unfulfilled
+        markets: markets.filter((m) => !m.isFulfilled),
+        priorityRank: isPriorityCity(location),
         _hasUnfulfilled: hasUnfulfilled,
       };
     })
