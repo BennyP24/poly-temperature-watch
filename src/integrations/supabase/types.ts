@@ -14,7 +14,92 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      paper_accounts: {
+        Row: {
+          balance: number
+          created_at: string
+          device_id: string
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          balance?: number
+          created_at?: string
+          device_id: string
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          balance?: number
+          created_at?: string
+          device_id?: string
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      paper_trades: {
+        Row: {
+          account_id: string
+          amount: number
+          created_at: string
+          event_id: string
+          event_title: string
+          id: string
+          market_id: string
+          market_title: string
+          payout: number | null
+          price: number
+          profit: number | null
+          resolved_at: string | null
+          shares: number
+          side: string
+          status: string
+        }
+        Insert: {
+          account_id: string
+          amount: number
+          created_at?: string
+          event_id: string
+          event_title: string
+          id?: string
+          market_id: string
+          market_title: string
+          payout?: number | null
+          price: number
+          profit?: number | null
+          resolved_at?: string | null
+          shares: number
+          side?: string
+          status?: string
+        }
+        Update: {
+          account_id?: string
+          amount?: number
+          created_at?: string
+          event_id?: string
+          event_title?: string
+          id?: string
+          market_id?: string
+          market_title?: string
+          payout?: number | null
+          price?: number
+          profit?: number | null
+          resolved_at?: string | null
+          shares?: number
+          side?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paper_trades_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "paper_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
