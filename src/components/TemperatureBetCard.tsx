@@ -1,6 +1,6 @@
 import { useState } from "react";
-import type { TemperatureEvent } from "@/lib/polymarket";
-import type { CityWeather } from "@/hooks/useWeatherData";
+import type { TemperatureEvent, TemperatureMarket } from "@/lib/polymarket";
+import type { CityWeather, DateWeather } from "@/hooks/useWeatherData";
 import { SignalBadge } from "./SignalBadge";
 import { ClockDisplay } from "./ClockDisplay";
 import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, DollarSign, Check, Copy, Eye, BarChart3 } from "lucide-react";
@@ -13,6 +13,8 @@ interface TemperatureBetCardProps {
   onToggleSave: () => void;
   refNumber: number;
   isObservation: boolean;
+  betDate?: string;
+  onPlaceTrade?: (market: TemperatureMarket) => void;
 }
 
 function parseTempRange(title: string): [number, number] | null {
@@ -27,10 +29,11 @@ function parseTempRange(title: string): [number, number] | null {
 
 function isCorrectAnswer(title: string, highTempF: number | null): boolean {
   if (highTempF === null) return false;
-  const floored = Math.floor(highTempF);
+  // Standard rounding: >=0.5 rounds up, <0.5 rounds down
+  const rounded = Math.round(highTempF);
   const range = parseTempRange(title);
   if (!range) return false;
-  return floored >= range[0] && floored <= range[1];
+  return rounded >= range[0] && rounded <= range[1];
 }
 
 function fToC(f: number): number {
@@ -48,11 +51,20 @@ function formatHour(hour: number): string {
   return `${h}:00 ${ampm}`;
 }
 
-export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, refNumber, isObservation }: TemperatureBetCardProps) {
-  const pastPeak = weather?.pastPeak ?? false;
-  const highTemp = weather?.highestRecordedF ?? null;
-  const [copied, setCopied] = useState(false);
+function getDateWeather(weather: CityWeather | undefined, betDate: string | undefined): DateWeather | null {
+  if (!weather?.dates || !betDate) return null;
+  return weather.dates[betDate] ?? null;
+}
 
+export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, refNumber, isObservation, betDate, onPlaceTrade }: TemperatureBetCardProps) {
+  const dateWeather = getDateWeather(weather, betDate);
+  
+  // For observations, use the date-specific data; for forecasts, use forecast data
+  const highTemp = dateWeather?.highF ?? weather?.highestRecordedF ?? null;
+  const pastPeak = dateWeather?.pastPeak ?? weather?.pastPeak ?? false;
+  const peakHour = dateWeather?.peakHour ?? weather?.peakHour ?? null;
+  
+  const [copied, setCopied] = useState(false);
   const refId = `#T${String(refNumber).padStart(3, "0")}`;
 
   const copyRef = () => {
@@ -63,18 +75,31 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
 
   const dataLabel = isObservation ? "OBSERVATION" : "FORECAST";
 
+  // Find actual cooling hour from hourly data
+  const coolingHour = (() => {
+    if (!isObservation || !dateWeather?.hourly) return null;
+    const hourly = dateWeather.hourly;
+    // Find the hour after which temperature starts consistently dropping
+    let peakIdx = 0;
+    for (let i = 1; i < hourly.length; i++) {
+      if (hourly[i].tempF > hourly[peakIdx].tempF) peakIdx = i;
+    }
+    return hourly[peakIdx]?.hour ?? null;
+  })();
+
+  const isCooling = isObservation && coolingHour !== null && (weather?.currentHour ?? 0) > coolingHour;
+
   return (
     <div
       className={`relative rounded-md border bg-card p-3 sm:p-4 transition-all hover:border-primary/30 ${
-        pastPeak && isObservation
+        isCooling
           ? "border-[hsl(var(--signal-resolved))] shadow-[0_0_12px_hsl(var(--signal-resolved)/0.25)]"
           : event.isNew
             ? "border-signal-new/40 shadow-[0_0_15px_hsl(var(--signal-new)/0.1)]"
             : "border-border"
       }`}
     >
-      {/* Past peak badge — only for observations */}
-      {pastPeak && isObservation && (
+      {isCooling && (
         <div className="absolute -top-2 right-3 rounded-sm bg-[hsl(var(--signal-resolved))] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-background">
           Past Peak
         </div>
@@ -91,13 +116,14 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
           {copied ? <Check className="h-2.5 w-2.5" /> : <Copy className="h-2.5 w-2.5" />}
         </button>
         <span className={`flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
-          isObservation
-            ? "bg-accent/20 text-accent"
-            : "bg-primary/20 text-primary"
+          isObservation ? "bg-accent/20 text-accent" : "bg-primary/20 text-primary"
         }`}>
           {isObservation ? <Eye className="h-2.5 w-2.5" /> : <BarChart3 className="h-2.5 w-2.5" />}
           {dataLabel}
         </span>
+        {betDate && (
+          <span className="text-[9px] text-muted-foreground">{betDate}</span>
+        )}
       </div>
 
       {/* Header */}
@@ -112,20 +138,13 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
           <button
             onClick={onToggleSave}
             className={`rounded-sm p-1 transition-colors ${
-              isSaved
-                ? "bg-[hsl(var(--signal-resolved))] text-background"
-                : "text-muted-foreground hover:text-primary border border-border"
+              isSaved ? "bg-[hsl(var(--signal-resolved))] text-background" : "text-muted-foreground hover:text-primary border border-border"
             }`}
             title={isSaved ? "Saved — click to unsave" : "Save this bet"}
           >
             <Check className="h-3.5 w-3.5" />
           </button>
-          <a
-            href={event.polymarketUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-sm p-1 text-muted-foreground transition-colors hover:text-primary"
-          >
+          <a href={event.polymarketUrl} target="_blank" rel="noopener noreferrer" className="rounded-sm p-1 text-muted-foreground transition-colors hover:text-primary">
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
         </div>
@@ -137,10 +156,13 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
         <span className="truncate">{event.location}</span>
       </div>
 
-      {/* Weather data — dual °F / °C */}
+      {/* Weather data from resolution source — always show if available */}
       {weather && !weather.error && (
         <div className="mb-2 sm:mb-3 rounded-sm border border-border bg-muted/50 p-2 sm:p-3 space-y-2">
-          <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-1 mb-1">
+            <span className="text-[8px] uppercase tracking-widest text-muted-foreground">Resolution Source Data</span>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
             <div className="flex flex-col items-center gap-0.5">
               <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">Now</span>
               <div className="flex items-center gap-0.5">
@@ -152,33 +174,48 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
             </div>
             <div className="flex flex-col items-center gap-0.5">
               <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">
-                {isObservation ? "High" : "Fcst High"}
+                {isObservation ? "Recorded High" : "Forecast High"}
               </span>
               <div className="flex items-center gap-0.5">
                 <TrendingUp className="h-3 w-3 text-destructive" />
                 <span className="text-[10px] sm:text-xs font-bold text-destructive tabular-nums">
-                  {formatDual(isObservation ? weather.highestRecordedF : weather.forecastHighF)}
+                  {formatDual(highTemp)}
                 </span>
               </div>
             </div>
-            <div className="flex flex-col items-center gap-0.5">
-              <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">
-                {isObservation ? "Forecast" : "Avg"}
-              </span>
-              <span className="text-[10px] sm:text-xs font-bold text-foreground tabular-nums">
-                {formatDual(weather.forecastHighF)}
-              </span>
-            </div>
           </div>
-          {/* Peak hour indicator — only for observations */}
-          {isObservation && weather.peakHour !== null && (
+          {isObservation && highTemp !== null && (
+            <div className="text-center text-[9px] text-muted-foreground">
+              Settles at: <span className="font-bold text-foreground">{Math.round(highTemp)}°F / {fToC(Math.round(highTemp)).toFixed(1)}°C</span>
+              <span className="text-[8px] ml-1">(≥0.5 rounds up)</span>
+            </div>
+          )}
+          {/* Cooling indicator from actual hourly data — observations only */}
+          {isObservation && coolingHour !== null && (
             <div className="flex items-center justify-center gap-1.5 text-[10px] sm:text-xs">
               <TrendingDown className="h-3 w-3 text-muted-foreground" />
               <span className="text-muted-foreground">
-                Temp drops after <span className="font-semibold text-foreground">{formatHour(weather.peakHour)}</span> local
-                {pastPeak && <span className="ml-1 text-[hsl(var(--signal-resolved))] font-bold">· COOLING</span>}
+                Temp drops after <span className="font-semibold text-foreground">{formatHour(coolingHour)}</span> local
+                {isCooling && <span className="ml-1 text-[hsl(var(--signal-resolved))] font-bold">· COOLING</span>}
               </span>
             </div>
+          )}
+          {/* Hourly breakdown for observations */}
+          {isObservation && dateWeather?.hourly && (
+            <details className="text-[9px]">
+              <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Hourly breakdown</summary>
+              <div className="mt-1 grid grid-cols-6 sm:grid-cols-8 gap-0.5">
+                {dateWeather.hourly.map(h => (
+                  <div key={h.hour} className={`text-center rounded-sm px-0.5 py-0.5 ${
+                    h.isRecorded ? "bg-muted" : "bg-muted/30"
+                  } ${h.hour === coolingHour ? "ring-1 ring-[hsl(var(--signal-resolved))]" : ""}`}>
+                    <div className="text-[8px] text-muted-foreground">{formatHour(h.hour)}</div>
+                    <div className="text-[9px] font-bold text-foreground tabular-nums">{h.tempF.toFixed(1)}°F</div>
+                    <div className="text-[8px] text-muted-foreground tabular-nums">{h.tempC.toFixed(1)}°C</div>
+                  </div>
+                ))}
+              </div>
+            </details>
           )}
         </div>
       )}
@@ -197,6 +234,7 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
           <div className="flex gap-3">
             <span>Price</span>
             <span>Profit</span>
+            {onPlaceTrade && <span>Trade</span>}
           </div>
         </div>
         <div className="max-h-40 sm:max-h-52 space-y-0.5 overflow-y-auto">
@@ -216,9 +254,7 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
                   }`}
                 >
                   <div className="flex items-center gap-1 min-w-0 mr-2">
-                    {correct && (
-                      <span className="text-[9px] font-bold text-[hsl(var(--signal-resolved))]">✓</span>
-                    )}
+                    {correct && <span className="text-[9px] font-bold text-[hsl(var(--signal-resolved))]">✓</span>}
                     <span className={`text-[10px] sm:text-xs truncate ${correct ? "font-semibold text-[hsl(var(--signal-resolved))]" : "text-foreground"}`}>
                       {m.groupItemTitle}
                     </span>
@@ -243,6 +279,14 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
                         +{profitPct.toFixed(0)}%
                       </span>
                     </div>
+                    {onPlaceTrade && (
+                      <button
+                        onClick={() => onPlaceTrade(m)}
+                        className="rounded-sm bg-primary/20 px-1.5 py-0.5 text-[9px] font-bold text-primary hover:bg-primary/30 transition-colors"
+                      >
+                        BET
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -257,10 +301,7 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
           <Clock className="h-3 w-3" />
           <span>
             Ends {new Date(event.endDate).toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
+              month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
             })}
           </span>
         </div>
@@ -273,12 +314,8 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
             <Link className="h-3 w-3" />
             <span>Resolution Source</span>
           </div>
-          <a
-            href={event.resolutionSource}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-0.5 block truncate text-[10px] sm:text-[11px] text-primary/80 transition-colors hover:text-primary"
-          >
+          <a href={event.resolutionSource} target="_blank" rel="noopener noreferrer"
+            className="mt-0.5 block truncate text-[10px] sm:text-[11px] text-primary/80 transition-colors hover:text-primary">
             {event.resolutionSource}
           </a>
         </div>
@@ -287,13 +324,8 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
       {event.referenceLinks.length > 1 && (
         <div className="mt-1 space-y-0.5">
           {event.referenceLinks.slice(1).map((link, i) => (
-            <a
-              key={i}
-              href={link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block truncate text-[10px] sm:text-[11px] text-muted-foreground transition-colors hover:text-primary"
-            >
+            <a key={i} href={link} target="_blank" rel="noopener noreferrer"
+              className="block truncate text-[10px] sm:text-[11px] text-muted-foreground transition-colors hover:text-primary">
               {link}
             </a>
           ))}
