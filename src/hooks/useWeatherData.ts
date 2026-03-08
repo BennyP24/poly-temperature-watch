@@ -1,5 +1,25 @@
 import { useQuery } from "@tanstack/react-query";
 
+export interface HourlyTemp {
+  hour: number;
+  tempF: number;
+  tempC: number;
+  isRecorded: boolean;
+}
+
+export interface DateWeather {
+  highF: number | null;
+  highC: number | null;
+  forecastHighF: number | null;
+  forecastHighC: number | null;
+  peakHour: number | null;
+  pastPeak: boolean;
+  isToday: boolean;
+  isPast: boolean;
+  isFuture: boolean;
+  hourly: HourlyTemp[];
+}
+
 export interface CityWeather {
   currentTempF: number | null;
   currentTempC: number | null;
@@ -7,12 +27,11 @@ export interface CityWeather {
   highestRecordedC: number | null;
   forecastHighF: number | null;
   forecastHighC: number | null;
-  yesterdayHighF: number | null;
-  yesterdayHighC: number | null;
   peakHour: number | null;
   currentHour: number;
   pastPeak: boolean;
   timezone: string;
+  dates?: Record<string, DateWeather>;
   error?: string;
 }
 
@@ -33,7 +52,7 @@ export function useWeatherData(cities: string[]) {
       if (!response.ok) throw new Error(`Weather fetch failed: ${response.status}`);
       return response.json();
     },
-    refetchInterval: 2 * 60_000, // Refresh every 2 minutes
+    refetchInterval: 2 * 60_000,
     staleTime: 60_000,
     enabled: cities.length > 0,
   });

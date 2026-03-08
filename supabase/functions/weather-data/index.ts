@@ -97,7 +97,8 @@ Deno.serve(async (req) => {
       }
 
       try {
-        const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=temperature_2m&hourly=temperature_2m&timezone=${encodeURIComponent(coords.tz)}&forecast_days=2&past_days=1&temperature_unit=fahrenheit`;
+        // Fetch from Open-Meteo (same data source as resolution websites like weather.com)
+        const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=temperature_2m&hourly=temperature_2m&timezone=${encodeURIComponent(coords.tz)}&forecast_days=3&past_days=2&temperature_unit=fahrenheit`;
         const resp = await fetch(apiUrl);
         const data = await resp.json();
 
@@ -106,58 +107,77 @@ Deno.serve(async (req) => {
         const hourlyTemps: number[] = data.hourly?.temperature_2m || [];
 
         const now = new Date();
-        const todayStr = now.toLocaleDateString("en-CA", { timeZone: coords.tz });
-        const yesterday = new Date(now.getTime() - 86400000);
-        const yesterdayStr = yesterday.toLocaleDateString("en-CA", { timeZone: coords.tz });
+        const localDateStr = now.toLocaleDateString("en-CA", { timeZone: coords.tz });
         const currentHour = parseInt(now.toLocaleTimeString("en-US", { timeZone: coords.tz, hour: "numeric", hour12: false }));
 
-        const todayTemps: { hour: number; temp: number }[] = [];
-        const yesterdayTemps: { hour: number; temp: number }[] = [];
-
+        // Build hourly data indexed by date
+        const hourlyByDate: Record<string, { hour: number; tempF: number }[]> = {};
         for (let i = 0; i < hourlyTimes.length; i++) {
           const dateStr = hourlyTimes[i].split("T")[0];
           const hour = parseInt(hourlyTimes[i].split("T")[1].split(":")[0]);
-          if (dateStr === todayStr) {
-            todayTemps.push({ hour, temp: hourlyTemps[i] });
-          } else if (dateStr === yesterdayStr) {
-            yesterdayTemps.push({ hour, temp: hourlyTemps[i] });
-          }
+          if (!hourlyByDate[dateStr]) hourlyByDate[dateStr] = [];
+          hourlyByDate[dateStr].push({ hour, tempF: hourlyTemps[i] });
         }
 
-        const recordedTemps = todayTemps.filter(t => t.hour <= currentHour);
-        const highestRecordedF = recordedTemps.length > 0
-          ? Math.max(...recordedTemps.map(t => t.temp))
-          : null;
+        // For each date, compute high from recorded hours only (for today/past), or full day for future
+        const dateData: Record<string, any> = {};
+        for (const [dateStr, hours] of Object.entries(hourlyByDate)) {
+          const isToday = dateStr === localDateStr;
+          const isPast = dateStr < localDateStr;
+          const isFuture = dateStr > localDateStr;
 
-        const forecastHighF = todayTemps.length > 0
-          ? Math.max(...todayTemps.map(t => t.temp))
-          : null;
+          let recordedHours = hours;
+          if (isToday) {
+            recordedHours = hours.filter(h => h.hour <= currentHour);
+          }
 
-        const peakHour = todayTemps.length > 0
-          ? todayTemps.reduce((max, t) => t.temp > max.temp ? t : max, todayTemps[0]).hour
-          : null;
+          const highF = isPast || isToday
+            ? (recordedHours.length > 0 ? Math.max(...recordedHours.map(h => h.tempF)) : null)
+            : (hours.length > 0 ? Math.max(...hours.map(h => h.tempF)) : null);
 
-        const pastPeak = peakHour !== null && currentHour > peakHour;
+          const peakEntry = hours.reduce((max, h) => h.tempF > max.tempF ? h : max, hours[0]);
+          const peakHour = peakEntry?.hour ?? null;
+          const pastPeak = isToday && peakHour !== null && currentHour > peakHour;
 
-        const yesterdayHighF = yesterdayTemps.length > 0
-          ? Math.max(...yesterdayTemps.map(t => t.temp))
-          : null;
+          // Build hourly array for frontend
+          const hourlyArr = hours.map(h => ({
+            hour: h.hour,
+            tempF: Math.round(h.tempF * 1000) / 1000,
+            tempC: Math.round(fToC(h.tempF) * 1000) / 1000,
+            isRecorded: isPast || (isToday && h.hour <= currentHour),
+          }));
+
+          dateData[dateStr] = {
+            highF: highF !== null ? Math.round(highF * 1000) / 1000 : null,
+            highC: highF !== null ? Math.round(fToC(highF) * 1000) / 1000 : null,
+            forecastHighF: hours.length > 0 ? Math.round(Math.max(...hours.map(h => h.tempF)) * 1000) / 1000 : null,
+            forecastHighC: hours.length > 0 ? Math.round(fToC(Math.max(...hours.map(h => h.tempF))) * 1000) / 1000 : null,
+            peakHour,
+            pastPeak,
+            isToday,
+            isPast,
+            isFuture,
+            hourly: hourlyArr,
+          };
+        }
+
+        const todayData = dateData[localDateStr];
 
         const round3 = (v: number | null) => v !== null ? Math.round(v * 1000) / 1000 : null;
 
         results[city] = {
           currentTempF: round3(currentTempF),
           currentTempC: round3(currentTempF !== null ? fToC(currentTempF) : null),
-          highestRecordedF: round3(highestRecordedF),
-          highestRecordedC: round3(highestRecordedF !== null ? fToC(highestRecordedF) : null),
-          forecastHighF: round3(forecastHighF),
-          forecastHighC: round3(forecastHighF !== null ? fToC(forecastHighF) : null),
-          yesterdayHighF: round3(yesterdayHighF),
-          yesterdayHighC: round3(yesterdayHighF !== null ? fToC(yesterdayHighF) : null),
-          peakHour,
+          highestRecordedF: todayData?.highF ?? null,
+          highestRecordedC: todayData?.highC ?? null,
+          forecastHighF: todayData?.forecastHighF ?? null,
+          forecastHighC: todayData?.forecastHighC ?? null,
+          peakHour: todayData?.peakHour ?? null,
           currentHour,
-          pastPeak,
+          pastPeak: todayData?.pastPeak ?? false,
           timezone: coords.tz,
+          // Full date-indexed data for multi-day views
+          dates: dateData,
         };
       } catch (e) {
         results[city] = { error: e instanceof Error ? e.message : "Failed to fetch weather" };
