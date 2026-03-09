@@ -10,7 +10,7 @@ interface PaperTradesSummaryProps {
   onResolve: (tradeId: string, won: boolean) => void | Promise<void>;
 }
 
-export function PaperTradesSummary({ balance, totalProfit, openTrades, closedTrades, onReset }: PaperTradesSummaryProps) {
+export function PaperTradesSummary({ balance, totalProfit, openTrades, closedTrades, onReset, onResolve }: PaperTradesSummaryProps) {
   const wins = closedTrades.filter(t => t.status === "won").length;
   const losses = closedTrades.filter(t => t.status === "lost").length;
 
