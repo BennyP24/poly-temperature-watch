@@ -95,10 +95,12 @@ function normalizeLocationKey(value: string): string {
 const PRIORITY_CITIES = ["seoul", "phnom penh", "bangkok", "ho chi minh", "tokyo", "beijing", "shanghai", "hong kong", "singapore", "manila", "jakarta", "kuala lumpur"];
 
 function extractLocation(title: string): string {
-  const match = title.match(/(?:temperature|temp)\s+in\s+([A-Za-z\s]+?)(?:\s+(?:be|on|exceed|above|below|reach|hit))/i);
+  const match = title.match(/(?:temperature|temp)\s+in\s+([\p{L}\s.'-]+?)(?:\s+(?:be|on|exceed|above|below|reach|hit))/iu);
   if (match?.[1]) return match[1].trim();
-  const match2 = title.match(/in\s+([A-Za-z\s]+?)(?:\s+on\s)/i);
+
+  const match2 = title.match(/in\s+([\p{L}\s.'-]+?)(?:\s+on\s)/iu);
   if (match2?.[1]) return match2[1].trim();
+
   return "Unknown";
 }
 
