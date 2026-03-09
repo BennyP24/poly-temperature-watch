@@ -67,6 +67,18 @@ export function PaperTradesSummary({ balance, totalProfit, openTrades, closedTra
                   </span>
                   <span className="text-xs tabular-nums text-foreground">${t.amount.toFixed(2)}</span>
                   <span className="text-[10px] tabular-nums text-muted-foreground">@{(t.price * 100).toFixed(1)}¢</span>
+                  <button
+                    onClick={() => onResolve(t.id, true)}
+                    className="rounded-sm bg-[hsl(var(--signal-resolved)/0.15)] px-1.5 py-0.5 text-[9px] font-bold text-[hsl(var(--signal-resolved))] hover:bg-[hsl(var(--signal-resolved)/0.25)]"
+                  >
+                    WON
+                  </button>
+                  <button
+                    onClick={() => onResolve(t.id, false)}
+                    className="rounded-sm bg-destructive/15 px-1.5 py-0.5 text-[9px] font-bold text-destructive hover:bg-destructive/25"
+                  >
+                    LOST
+                  </button>
                 </div>
               </div>
             ))}
