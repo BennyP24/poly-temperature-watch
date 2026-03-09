@@ -105,11 +105,19 @@ function extractLocation(title: string): string {
 }
 
 function getTimezone(location: string): string {
-  const lower = location.toLowerCase().trim();
+  const normalized = normalizeLocationKey(location);
+  const canonical = CITY_ALIASES[normalized] ?? normalized;
+
   for (const [city, tz] of Object.entries(CITY_TIMEZONES)) {
-    if (lower.includes(city)) return tz;
+    if (canonical.includes(city)) return tz;
   }
-  return "UTC";
+
+  // Best-effort partial fallback (e.g. "city center")
+  const partialMatch = Object.entries(CITY_TIMEZONES).find(([city]) =>
+    city.includes(canonical) || canonical.includes(city)
+  );
+
+  return partialMatch?.[1] ?? "UTC";
 }
 
 function extractLinks(description: string): string[] {
