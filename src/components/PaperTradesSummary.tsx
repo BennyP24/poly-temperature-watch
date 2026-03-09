@@ -7,6 +7,7 @@ interface PaperTradesSummaryProps {
   openTrades: PaperTrade[];
   closedTrades: PaperTrade[];
   onReset: () => void;
+  onResolve: (tradeId: string, won: boolean) => void | Promise<void>;
 }
 
 export function PaperTradesSummary({ balance, totalProfit, openTrades, closedTrades, onReset }: PaperTradesSummaryProps) {
