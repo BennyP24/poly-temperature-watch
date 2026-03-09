@@ -112,7 +112,15 @@ Deno.serve(async (req) => {
     const results: Record<string, any> = {};
 
     await Promise.all(cities.map(async (city) => {
-      const coords = CITY_COORDS[city];
+      const normalizedCity = normalizeCityKey(city);
+      const canonicalCity = CITY_ALIASES[normalizedCity] ?? normalizedCity;
+
+      const directCoords = CITY_COORDS[canonicalCity];
+      const fallbackKey = Object.keys(CITY_COORDS).find(
+        (key) => canonicalCity.includes(key) || key.includes(canonicalCity)
+      );
+      const coords = directCoords ?? (fallbackKey ? CITY_COORDS[fallbackKey] : undefined);
+
       if (!coords) {
         results[city] = { error: "Unknown city" };
         return;
