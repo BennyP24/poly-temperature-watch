@@ -66,7 +66,30 @@ const CITY_TIMEZONES: Record<string, string> = {
   "ottawa": "America/Toronto",
   "phnom penh": "Asia/Phnom_Penh",
   "ho chi minh": "Asia/Ho_Chi_Minh",
+  ankara: "Europe/Istanbul",
+  lucknow: "Asia/Kolkata",
 };
+
+const CITY_ALIASES: Record<string, string> = {
+  nyc: "new york",
+  "new york city": "new york",
+  "washington dc": "washington",
+  "washington d c": "washington",
+  "washington d.c": "washington",
+  "washington d.c.": "washington",
+  "sao paulo": "sao paulo",
+  "são paulo": "sao paulo",
+};
+
+function normalizeLocationKey(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 // Priority cities that should appear first (Asian cities ahead in time)
 const PRIORITY_CITIES = ["seoul", "phnom penh", "bangkok", "ho chi minh", "tokyo", "beijing", "shanghai", "hong kong", "singapore", "manila", "jakarta", "kuala lumpur"];
