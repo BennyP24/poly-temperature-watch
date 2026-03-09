@@ -65,7 +65,29 @@ const CITY_COORDS: Record<string, { lat: number; lon: number; tz: string }> = {
   perth: { lat: -31.95, lon: 115.86, tz: "Australia/Perth" },
   calgary: { lat: 51.05, lon: -114.07, tz: "America/Edmonton" },
   montreal: { lat: 45.50, lon: -73.57, tz: "America/Toronto" },
+  ankara: { lat: 39.93, lon: 32.86, tz: "Europe/Istanbul" },
+  lucknow: { lat: 26.85, lon: 80.95, tz: "Asia/Kolkata" },
 };
+
+const CITY_ALIASES: Record<string, string> = {
+  nyc: "new york",
+  "new york city": "new york",
+  "washington dc": "washington",
+  "washington d c": "washington",
+  "washington d.c": "washington",
+  "washington d.c.": "washington",
+  "são paulo": "sao paulo",
+};
+
+function normalizeCityKey(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function fToC(f: number): number {
   return (f - 32) * 5 / 9;
@@ -90,7 +112,15 @@ Deno.serve(async (req) => {
     const results: Record<string, any> = {};
 
     await Promise.all(cities.map(async (city) => {
-      const coords = CITY_COORDS[city];
+      const normalizedCity = normalizeCityKey(city);
+      const canonicalCity = CITY_ALIASES[normalizedCity] ?? normalizedCity;
+
+      const directCoords = CITY_COORDS[canonicalCity];
+      const fallbackKey = Object.keys(CITY_COORDS).find(
+        (key) => canonicalCity.includes(key) || key.includes(canonicalCity)
+      );
+      const coords = directCoords ?? (fallbackKey ? CITY_COORDS[fallbackKey] : undefined);
+
       if (!coords) {
         results[city] = { error: "Unknown city" };
         return;

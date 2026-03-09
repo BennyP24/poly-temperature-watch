@@ -246,6 +246,7 @@ const Index = () => {
             openTrades={paper.openTrades}
             closedTrades={paper.closedTrades}
             onReset={paper.resetBalance}
+            onResolve={paper.resolveTrade}
           />
         )}
 

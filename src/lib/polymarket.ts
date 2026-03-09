@@ -66,25 +66,58 @@ const CITY_TIMEZONES: Record<string, string> = {
   "ottawa": "America/Toronto",
   "phnom penh": "Asia/Phnom_Penh",
   "ho chi minh": "Asia/Ho_Chi_Minh",
+  ankara: "Europe/Istanbul",
+  lucknow: "Asia/Kolkata",
 };
+
+const CITY_ALIASES: Record<string, string> = {
+  nyc: "new york",
+  "new york city": "new york",
+  "washington dc": "washington",
+  "washington d c": "washington",
+  "washington d.c": "washington",
+  "washington d.c.": "washington",
+  "sao paulo": "sao paulo",
+  "são paulo": "sao paulo",
+};
+
+function normalizeLocationKey(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 // Priority cities that should appear first (Asian cities ahead in time)
 const PRIORITY_CITIES = ["seoul", "phnom penh", "bangkok", "ho chi minh", "tokyo", "beijing", "shanghai", "hong kong", "singapore", "manila", "jakarta", "kuala lumpur"];
 
 function extractLocation(title: string): string {
-  const match = title.match(/(?:temperature|temp)\s+in\s+([A-Za-z\s]+?)(?:\s+(?:be|on|exceed|above|below|reach|hit))/i);
+  const match = title.match(/(?:temperature|temp)\s+in\s+([\p{L}\s.'-]+?)(?:\s+(?:be|on|exceed|above|below|reach|hit))/iu);
   if (match?.[1]) return match[1].trim();
-  const match2 = title.match(/in\s+([A-Za-z\s]+?)(?:\s+on\s)/i);
+
+  const match2 = title.match(/in\s+([\p{L}\s.'-]+?)(?:\s+on\s)/iu);
   if (match2?.[1]) return match2[1].trim();
+
   return "Unknown";
 }
 
 function getTimezone(location: string): string {
-  const lower = location.toLowerCase().trim();
+  const normalized = normalizeLocationKey(location);
+  const canonical = CITY_ALIASES[normalized] ?? normalized;
+
   for (const [city, tz] of Object.entries(CITY_TIMEZONES)) {
-    if (lower.includes(city)) return tz;
+    if (canonical.includes(city)) return tz;
   }
-  return "UTC";
+
+  // Best-effort partial fallback (e.g. "city center")
+  const partialMatch = Object.entries(CITY_TIMEZONES).find(([city]) =>
+    city.includes(canonical) || canonical.includes(city)
+  );
+
+  return partialMatch?.[1] ?? "UTC";
 }
 
 function extractLinks(description: string): string[] {
