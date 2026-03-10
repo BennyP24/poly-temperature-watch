@@ -3,7 +3,7 @@ import type { TemperatureEvent, TemperatureMarket } from "@/lib/polymarket";
 import type { CityWeather, DateWeather } from "@/hooks/useWeatherData";
 import { SignalBadge } from "./SignalBadge";
 import { ClockDisplay } from "./ClockDisplay";
-import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, DollarSign, Check, Copy, Eye, BarChart3 } from "lucide-react";
+import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, Check, Copy, Eye, BarChart3 } from "lucide-react";
 
 interface TemperatureBetCardProps {
   event: TemperatureEvent;
