@@ -9,7 +9,7 @@ import { PortfolioHeader } from "@/components/PortfolioHeader";
 import { PaperTradeDialog } from "@/components/PaperTradeDialog";
 import { PaperTradesSummary } from "@/components/PaperTradesSummary";
 import type { TemperatureEvent, TemperatureMarket } from "@/lib/polymarket";
-import { Thermometer, RefreshCw, AlertTriangle, DollarSign } from "lucide-react";
+import { Thermometer, RefreshCw, AlertTriangle } from "lucide-react";
 
 const ASIAN_CITIES = ["seoul", "phnom penh", "bangkok", "ho chi minh", "tokyo", "beijing", "shanghai", "hong kong", "singapore", "manila", "jakarta", "kuala lumpur", "delhi", "mumbai", "dubai"];
 
