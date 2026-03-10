@@ -181,11 +181,6 @@ const Index = () => {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {/* Balance display */}
-            <div className="hidden sm:flex items-center gap-1 rounded-md border border-border bg-secondary px-2 py-1">
-              <DollarSign className="h-3 w-3 text-accent" />
-              <span className="text-xs font-bold text-accent tabular-nums">{paper.balance.toFixed(2)}</span>
-            </div>
             <button
               onClick={() => refetch()}
               disabled={isFetching}
@@ -195,6 +190,17 @@ const Index = () => {
               <span className="hidden sm:inline">Refresh</span>
             </button>
           </div>
+        </div>
+
+        {/* Portfolio Balance - always visible at top */}
+        <div className="mb-4 sm:mb-6">
+          <PortfolioHeader
+            balance={paper.balance}
+            openTrades={paper.openTrades}
+            closedTrades={paper.closedTrades}
+            totalProfit={paper.totalProfit}
+            events={events}
+          />
         </div>
 
         {/* Status Bar */}
