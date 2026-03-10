@@ -5,6 +5,7 @@ import { useSavedBets } from "@/hooks/useSavedBets";
 import { usePaperTrading } from "@/hooks/usePaperTrading";
 import { StatusBar } from "@/components/StatusBar";
 import { TemperatureBetCard } from "@/components/TemperatureBetCard";
+import { PortfolioHeader } from "@/components/PortfolioHeader";
 import { PaperTradeDialog } from "@/components/PaperTradeDialog";
 import { PaperTradesSummary } from "@/components/PaperTradesSummary";
 import type { TemperatureEvent, TemperatureMarket } from "@/lib/polymarket";
