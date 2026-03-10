@@ -68,6 +68,12 @@ const CITY_TIMEZONES: Record<string, string> = {
   "ho chi minh": "Asia/Ho_Chi_Minh",
   ankara: "Europe/Istanbul",
   lucknow: "Asia/Kolkata",
+  "tel aviv": "Asia/Jerusalem",
+  wellington: "Pacific/Auckland",
+  lima: "America/Lima",
+  bogota: "America/Bogota",
+  santiago: "America/Santiago",
+  johannesburg: "Africa/Johannesburg",
 };
 
 const CITY_ALIASES: Record<string, string> = {
