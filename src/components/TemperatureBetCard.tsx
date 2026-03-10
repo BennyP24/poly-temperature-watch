@@ -3,7 +3,7 @@ import type { TemperatureEvent, TemperatureMarket } from "@/lib/polymarket";
 import type { CityWeather, DateWeather } from "@/hooks/useWeatherData";
 import { SignalBadge } from "./SignalBadge";
 import { ClockDisplay } from "./ClockDisplay";
-import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, DollarSign, Check, Copy, Eye, BarChart3 } from "lucide-react";
+import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, Check, Copy, Eye, BarChart3 } from "lucide-react";
 
 interface TemperatureBetCardProps {
   event: TemperatureEvent;
@@ -227,71 +227,80 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
         <ClockDisplay timezone="UTC" label="PM" variant="accent" />
       </div>
 
-      {/* Markets / Odds */}
+      {/* Markets / Odds — YES & NO side by side */}
       <div className="mb-2 sm:mb-3 space-y-1">
-        <div className="flex items-center justify-between text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">
-          <span>Temp Range</span>
-          <div className="flex gap-3">
-            <span>Price</span>
-            <span>Profit</span>
-            {onPlaceTrade && <span>Trade</span>}
-          </div>
+        <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-1 sm:gap-x-2 items-center text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground px-1.5 sm:px-2">
+          <span>Range</span>
+          <span className="text-center w-14 sm:w-16">YES</span>
+          <span className="text-center w-10 sm:w-12">+%</span>
+          <span className="text-center w-14 sm:w-16">NO</span>
+          <span className="text-center w-10 sm:w-12">+%</span>
         </div>
-        <div className="max-h-40 sm:max-h-52 space-y-0.5 overflow-y-auto">
+        <div className="max-h-48 sm:max-h-56 space-y-0.5 overflow-y-auto">
           {event.markets
             .sort((a, b) => b.yesPrice - a.yesPrice)
             .map((m) => {
               const correct = isObservation && isCorrectAnswer(m.groupItemTitle, highTemp);
-              const profitPct = m.yesPrice > 0 ? ((1 - m.yesPrice) / m.yesPrice) * 100 : 0;
+              const yesProfitPct = m.yesPrice > 0 ? ((1 - m.yesPrice) / m.yesPrice) * 100 : 0;
+              const noProfitPct = m.noPrice > 0 ? ((1 - m.noPrice) / m.noPrice) * 100 : 0;
 
               return (
                 <div
                   key={m.id}
-                  className={`flex items-center justify-between rounded-sm px-1.5 sm:px-2 py-1 sm:py-1.5 transition-colors ${
+                  className={`grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-1 sm:gap-x-2 items-center rounded-sm px-1.5 sm:px-2 py-1 sm:py-1.5 transition-colors ${
                     correct
                       ? "bg-[hsl(var(--signal-resolved)/0.15)] border border-[hsl(var(--signal-resolved)/0.5)]"
                       : "bg-muted/30"
                   }`}
                 >
-                  <div className="flex items-center gap-1 min-w-0 mr-2">
+                  {/* Range label */}
+                  <div className="flex items-center gap-1 min-w-0">
                     {correct && <span className="text-[9px] font-bold text-[hsl(var(--signal-resolved))]">✓</span>}
                     <span className={`text-[10px] sm:text-xs truncate ${correct ? "font-semibold text-[hsl(var(--signal-resolved))]" : "text-foreground"}`}>
                       {m.groupItemTitle}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-                    <div className="flex items-center gap-1">
-                      <div className="h-1 w-8 sm:w-12 overflow-hidden rounded-full bg-muted">
-                        <div
-                          className={`h-full rounded-full ${correct ? "bg-[hsl(var(--signal-resolved))]" : "bg-primary"}`}
-                          style={{ width: `${m.yesPrice * 100}%` }}
-                        />
-                      </div>
-                      <span className={`w-8 sm:w-10 text-right text-[10px] sm:text-xs tabular-nums ${correct ? "text-[hsl(var(--signal-resolved))] font-semibold" : "text-primary"}`}>
-                        {(m.yesPrice * 100).toFixed(1)}¢
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-0.5">
-                      <DollarSign className="h-2.5 w-2.5 text-muted-foreground" />
-                      <span className={`w-10 sm:w-12 text-right text-[10px] sm:text-xs tabular-nums ${
-                        correct ? "text-[hsl(var(--signal-resolved))] font-bold" : "text-muted-foreground"
-                      }`}>
-                        +{profitPct.toFixed(0)}%
-                      </span>
-                    </div>
-                    {onPlaceTrade && (
-                      <button
-                        onClick={() => onPlaceTrade(m)}
-                        className="rounded-sm bg-primary/20 px-1.5 py-0.5 text-[9px] font-bold text-primary hover:bg-primary/30 transition-colors"
-                      >
-                        BET
-                      </button>
-                    )}
-                  </div>
+
+                  {/* YES price */}
+                  <span className={`w-14 sm:w-16 text-center text-[10px] sm:text-xs font-semibold tabular-nums ${correct ? "text-[hsl(var(--signal-resolved))]" : "text-[hsl(var(--signal-resolved))]"}`}>
+                    {(m.yesPrice * 100).toFixed(1)}¢
+                  </span>
+
+                  {/* YES profit % */}
+                  <span className="w-10 sm:w-12 text-center text-[10px] sm:text-xs tabular-nums text-[hsl(var(--signal-resolved))]">
+                    +{yesProfitPct.toFixed(0)}%
+                  </span>
+
+                  {/* NO price */}
+                  <span className="w-14 sm:w-16 text-center text-[10px] sm:text-xs font-semibold tabular-nums text-destructive">
+                    {(m.noPrice * 100).toFixed(1)}¢
+                  </span>
+
+                  {/* NO profit % */}
+                  <span className="w-10 sm:w-12 text-center text-[10px] sm:text-xs tabular-nums text-destructive">
+                    +{noProfitPct.toFixed(0)}%
+                  </span>
                 </div>
               );
             })}
         </div>
+        {/* Trade button row */}
+        {onPlaceTrade && event.markets.length > 0 && (
+          <div className="flex flex-wrap gap-1 pt-1">
+            {event.markets
+              .sort((a, b) => b.yesPrice - a.yesPrice)
+              .slice(0, 5)
+              .map(m => (
+                <button
+                  key={m.id}
+                  onClick={() => onPlaceTrade(m)}
+                  className="rounded-sm bg-primary/20 px-1.5 py-0.5 text-[9px] font-bold text-primary hover:bg-primary/30 transition-colors"
+                >
+                  BET {m.groupItemTitle}
+                </button>
+              ))}
+          </div>
+        )}
       </div>
 
       {/* Volume & End date */}
