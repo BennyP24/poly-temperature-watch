@@ -92,58 +92,42 @@ export function usePaperTrading() {
     setLoading(true);
 
     try {
-      const { data: existing, error: existingError } = await supabase
+      // Use upsert to handle race conditions - device_id has unique constraint
+      const { data: account, error: upsertError } = await supabase
         .from("paper_accounts")
-        .select("*")
-        .eq("device_id", deviceId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (existingError) {
-        console.error("Failed to load paper account", existingError);
-      }
-
-      if (existing) {
-        setAccountId(existing.id);
-        safeLocalStorageSet(ACCOUNT_KEY, existing.id);
-        setBalance(Number(existing.balance));
-        return;
-      }
-
-      const { data: created, error: createError } = await supabase
-        .from("paper_accounts")
-        .insert({ device_id: deviceId, balance: 1000 })
+        .upsert(
+          { device_id: deviceId, balance: 1000 },
+          { onConflict: "device_id", ignoreDuplicates: true }
+        )
         .select()
         .single();
 
-      if (createError) {
-        // If account was created in another concurrent request, fetch again.
-        if ((createError as { code?: string }).code === "23505") {
-          const { data: refetched } = await supabase
-            .from("paper_accounts")
-            .select("*")
-            .eq("device_id", deviceId)
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
+      if (upsertError) {
+        // upsert with ignoreDuplicates returns nothing if row exists, so fetch it
+        const { data: existing, error: fetchError } = await supabase
+          .from("paper_accounts")
+          .select("*")
+          .eq("device_id", deviceId)
+          .limit(1)
+          .maybeSingle();
 
-          if (refetched) {
-            setAccountId(refetched.id);
-            safeLocalStorageSet(ACCOUNT_KEY, refetched.id);
-            setBalance(Number(refetched.balance));
-          }
+        if (fetchError) {
+          console.error("Failed to load paper account", fetchError);
           return;
         }
 
-        console.error("Failed to create paper account", createError);
+        if (existing) {
+          setAccountId(existing.id);
+          safeLocalStorageSet(ACCOUNT_KEY, existing.id);
+          setBalance(Number(existing.balance));
+        }
         return;
       }
 
-      if (created) {
-        setAccountId(created.id);
-        safeLocalStorageSet(ACCOUNT_KEY, created.id);
-        setBalance(Number(created.balance));
+      if (account) {
+        setAccountId(account.id);
+        safeLocalStorageSet(ACCOUNT_KEY, account.id);
+        setBalance(Number(account.balance));
       }
     } finally {
       setLoading(false);

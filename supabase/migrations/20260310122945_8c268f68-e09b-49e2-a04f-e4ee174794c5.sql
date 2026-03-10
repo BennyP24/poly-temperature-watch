@@ -1,0 +1,1 @@
+ALTER TABLE public.paper_accounts ADD CONSTRAINT paper_accounts_device_id_unique UNIQUE (device_id);
