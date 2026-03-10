@@ -67,6 +67,12 @@ const CITY_COORDS: Record<string, { lat: number; lon: number; tz: string }> = {
   montreal: { lat: 45.50, lon: -73.57, tz: "America/Toronto" },
   ankara: { lat: 39.93, lon: 32.86, tz: "Europe/Istanbul" },
   lucknow: { lat: 26.85, lon: 80.95, tz: "Asia/Kolkata" },
+  "tel aviv": { lat: 32.08, lon: 34.78, tz: "Asia/Jerusalem" },
+  wellington: { lat: -41.29, lon: 174.78, tz: "Pacific/Auckland" },
+  lima: { lat: -12.05, lon: -77.04, tz: "America/Lima" },
+  bogota: { lat: 4.71, lon: -74.07, tz: "America/Bogota" },
+  santiago: { lat: -33.45, lon: -70.67, tz: "America/Santiago" },
+  johannesburg: { lat: -26.20, lon: 28.05, tz: "Africa/Johannesburg" },
 };
 
 const CITY_ALIASES: Record<string, string> = {
