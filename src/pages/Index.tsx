@@ -345,8 +345,12 @@ const Index = () => {
             totalProfit={paper.totalProfit}
             openTrades={paper.openTrades}
             closedTrades={paper.closedTrades}
+            events={events}
             onReset={paper.resetBalance}
             onResolve={paper.resolveTrade}
+            onSell={paper.sellTrade}
+            onDownloadSession={handleDownloadSession}
+            onUploadSession={handleUploadSession}
           />
         )}
 
