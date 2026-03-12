@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, type ChangeEvent } from "react";
 import type { PaperTrade } from "@/hooks/usePaperTrading";
 import type { TemperatureEvent } from "@/lib/polymarket";
 import {
