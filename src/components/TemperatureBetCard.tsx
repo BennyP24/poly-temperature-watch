@@ -3,7 +3,7 @@ import type { TemperatureEvent, TemperatureMarket } from "@/lib/polymarket";
 import type { CityWeather, DateWeather } from "@/hooks/useWeatherData";
 import { SignalBadge } from "./SignalBadge";
 import { ClockDisplay } from "./ClockDisplay";
-import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, Check, Copy, Eye, BarChart3 } from "lucide-react";
+import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, Check, Copy, Eye, BarChart3, Zap } from "lucide-react";
 
 interface TemperatureBetCardProps {
   event: TemperatureEvent;
@@ -11,6 +11,8 @@ interface TemperatureBetCardProps {
   weather?: CityWeather;
   isSaved: boolean;
   onToggleSave: () => void;
+  isMicroSaved?: boolean;
+  onToggleMicroSave?: () => void;
   refNumber: number;
   isObservation: boolean;
   betDate?: string;
@@ -56,7 +58,7 @@ function getDateWeather(weather: CityWeather | undefined, betDate: string | unde
   return weather.dates[betDate] ?? null;
 }
 
-export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, refNumber, isObservation, betDate, onPlaceTrade }: TemperatureBetCardProps) {
+export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, isMicroSaved, onToggleMicroSave, refNumber, isObservation, betDate, onPlaceTrade }: TemperatureBetCardProps) {
   const dateWeather = getDateWeather(weather, betDate);
   
   // For observations, use the date-specific data; for forecasts, use forecast data
@@ -144,6 +146,17 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
           >
             <Check className="h-3.5 w-3.5" />
           </button>
+          {onToggleMicroSave && (
+            <button
+              onClick={onToggleMicroSave}
+              className={`rounded-sm p-1 transition-colors ${
+                isMicroSaved ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-accent border border-border"
+              }`}
+              title={isMicroSaved ? "Micro-saved — click to unsave" : "Mark as micro trade"}
+            >
+              <Zap className="h-3.5 w-3.5" />
+            </button>
+          )}
           <a href={event.polymarketUrl} target="_blank" rel="noopener noreferrer" className="rounded-sm p-1 text-muted-foreground transition-colors hover:text-primary">
             <ExternalLink className="h-3.5 w-3.5" />
           </a>

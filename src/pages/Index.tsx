@@ -3,18 +3,20 @@ import { usePolymarketData } from "@/hooks/usePolymarketData";
 import { useWeatherData } from "@/hooks/useWeatherData";
 import { useSavedBets } from "@/hooks/useSavedBets";
 import { usePaperTrading, type ImportedPaperTrade } from "@/hooks/usePaperTrading";
+import { useMicroAutoTrade } from "@/hooks/useMicroAutoTrade";
 import { StatusBar } from "@/components/StatusBar";
 import { TemperatureBetCard } from "@/components/TemperatureBetCard";
 import { PortfolioHeader } from "@/components/PortfolioHeader";
 import { PaperTradeDialog } from "@/components/PaperTradeDialog";
 import { PaperTradesSummary } from "@/components/PaperTradesSummary";
+import { MicroTradesSummary } from "@/components/MicroTradesSummary";
 import { useToast } from "@/components/ui/use-toast";
 import type { TemperatureEvent, TemperatureMarket } from "@/lib/polymarket";
-import { Thermometer, RefreshCw, AlertTriangle } from "lucide-react";
+import { Thermometer, RefreshCw, AlertTriangle, Zap } from "lucide-react";
 
 const ASIAN_CITIES = ["seoul", "phnom penh", "bangkok", "ho chi minh", "tokyo", "beijing", "shanghai", "hong kong", "singapore", "manila", "jakarta", "kuala lumpur", "delhi", "mumbai", "dubai"];
 
-type TabKey = "asian-past" | "asian-future" | "other-past" | "other-future" | "saved" | "trades";
+type TabKey = "asian-past" | "asian-future" | "other-past" | "other-future" | "saved" | "trades" | "micro";
 
 const TABS: { key: TabKey; label: string; short: string }[] = [
   { key: "asian-past", label: "Asian Markets · Past", short: "Asia Past" },
@@ -23,15 +25,13 @@ const TABS: { key: TabKey; label: string; short: string }[] = [
   { key: "other-future", label: "Other Markets · Future", short: "Other Future" },
   { key: "saved", label: "My Marked Trades", short: "Saved" },
   { key: "trades", label: "Paper Trades", short: "Trades" },
+  { key: "micro", label: "Micro Trades", short: "Micro" },
 ];
 
 interface SessionBackupFile {
   version: 1;
   exportedAt: string;
-  paperTrading: {
-    balance: number;
-    trades: ImportedPaperTrade[];
-  };
+  paperTrading: { balance: number; trades: ImportedPaperTrade[] };
   savedBetIds: string[];
 }
 
@@ -44,14 +44,37 @@ function getBetDate(event: TemperatureEvent): string {
   return (event.endDate || event.createdAt || "").split("T")[0];
 }
 
+const MICRO_AUTO_KEY = "micro-auto-enabled";
+
 const Index = () => {
   const { data: events, isLoading, error, dataUpdatedAt, refetch, isFetching } = usePolymarketData();
   const [userTimezone, setUserTimezone] = useState("UTC");
   const { toggle, isSaved, savedIds, replaceSaved } = useSavedBets();
-  const paper = usePaperTrading();
+  const paper = usePaperTrading("paper");
+  const micro = usePaperTrading("micro");
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<TabKey>("asian-past");
   const [tradeTarget, setTradeTarget] = useState<{ market: TemperatureMarket; event: TemperatureEvent } | null>(null);
+  const [microAutoEnabled, setMicroAutoEnabled] = useState(() => {
+    try { return localStorage.getItem(MICRO_AUTO_KEY) === "true"; } catch { return false; }
+  });
+
+  // Micro auto-trade: buy NO ≤3¢ on all markets immediately
+  useMicroAutoTrade({
+    events,
+    accountId: micro.accountId,
+    balance: micro.balance,
+    placeTrade: micro.placeTrade,
+    enabled: microAutoEnabled,
+  });
+
+  const toggleMicroAuto = useCallback(() => {
+    setMicroAutoEnabled(prev => {
+      const next = !prev;
+      try { localStorage.setItem(MICRO_AUTO_KEY, String(next)); } catch {}
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     try { setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone); } catch { setUserTimezone("UTC"); }
@@ -71,17 +94,11 @@ const Index = () => {
   const now = useMemo(() => new Date(), [dataUpdatedAt]);
   const todayStr = now.toISOString().split("T")[0];
 
-  // Categorize events into tabs
   const categorized = useMemo(() => {
-    if (!events) return { "asian-past": [], "asian-future": [], "other-past": [], "other-future": [], saved: [], trades: [] } as Record<TabKey, (TemperatureEvent & { betDate: string; isObs: boolean })[]>;
+    if (!events) return { "asian-past": [], "asian-future": [], "other-past": [], "other-future": [], saved: [], trades: [], micro: [] } as Record<TabKey, (TemperatureEvent & { betDate: string; isObs: boolean })[]>;
 
     const result: Record<TabKey, (TemperatureEvent & { betDate: string; isObs: boolean })[]> = {
-      "asian-past": [],
-      "asian-future": [],
-      "other-past": [],
-      "other-future": [],
-      saved: [],
-      trades: [],
+      "asian-past": [], "asian-future": [], "other-past": [], "other-future": [], saved: [], trades: [], micro: [],
     };
 
     const twoDaysAgo = new Date(now.getTime() - 2 * 86400000).toISOString().split("T")[0];
@@ -93,18 +110,14 @@ const Index = () => {
       const asian = isAsianCity(event.location);
       const enriched = { ...event, betDate, isObs };
 
-      if (isSaved(event.id)) {
-        result.saved.push(enriched);
-      }
+      if (isSaved(event.id)) result.saved.push(enriched);
 
       if (isObs) {
-        // Past (including today): within last 2 days
         if (betDate >= twoDaysAgo) {
           if (asian) result["asian-past"].push(enriched);
           else result["other-past"].push(enriched);
         }
       } else {
-        // Future: within next 2 days
         if (betDate <= twoDaysAhead) {
           if (asian) result["asian-future"].push(enriched);
           else result["other-future"].push(enriched);
@@ -112,7 +125,6 @@ const Index = () => {
       }
     }
 
-    // Sort: priority cities first, then by date
     const sortEvents = (arr: typeof result["asian-past"]) =>
       arr.sort((a, b) => {
         if (a.priorityRank !== b.priorityRank) return a.priorityRank - b.priorityRank;
@@ -128,45 +140,29 @@ const Index = () => {
     return result;
   }, [events, todayStr, isSaved, now]);
 
+  // Saved bets for micro trades (separate from normal saves)
+  const { toggle: toggleMicroSave, isSaved: isMicroSaved, savedIds: microSavedIds, replaceSaved: replaceMicroSaved } = useSavedBets("micro-saved-bets");
+
   const handleDownloadSession = useCallback(() => {
     const payload: SessionBackupFile = {
-      version: 1,
-      exportedAt: new Date().toISOString(),
+      version: 1, exportedAt: new Date().toISOString(),
       paperTrading: {
         balance: paper.balance,
-        trades: paper.trades.map((trade) => ({
-          event_id: trade.event_id,
-          event_title: trade.event_title,
-          market_id: trade.market_id,
-          market_title: trade.market_title,
-          side: trade.side,
-          price: trade.price,
-          amount: trade.amount,
-          shares: trade.shares,
-          status: trade.status,
-          payout: trade.payout,
-          profit: trade.profit,
-          created_at: trade.created_at,
-          resolved_at: trade.resolved_at,
+        trades: paper.trades.map((t) => ({
+          event_id: t.event_id, event_title: t.event_title, market_id: t.market_id, market_title: t.market_title,
+          side: t.side, price: t.price, amount: t.amount, shares: t.shares,
+          status: t.status, payout: t.payout, profit: t.profit, created_at: t.created_at, resolved_at: t.resolved_at,
         })),
       },
       savedBetIds: savedIds,
     };
-
     const formattedDate = payload.exportedAt.replace(/[:.]/g, "-");
     const filename = `paper-session-${formattedDate}.json`;
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.click();
+    const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; anchor.click();
     URL.revokeObjectURL(url);
-
-    toast({
-      title: "Session downloaded",
-      description: `Saved as ${filename}`,
-    });
+    toast({ title: "Session downloaded", description: `Saved as ${filename}` });
   }, [paper.balance, paper.trades, savedIds, toast]);
 
   const handleUploadSession = useCallback(
@@ -174,36 +170,16 @@ const Index = () => {
       try {
         const raw = await file.text();
         const parsed = JSON.parse(raw) as Partial<SessionBackupFile>;
-
         const balance = Number(parsed.paperTrading?.balance);
-        const trades = Array.isArray(parsed.paperTrading?.trades)
-          ? (parsed.paperTrading.trades as ImportedPaperTrade[])
-          : [];
-        const restoredSavedIds = Array.isArray(parsed.savedBetIds)
-          ? parsed.savedBetIds.filter((id): id is string => typeof id === "string" && id.length > 0)
-          : [];
-
-        if (!Number.isFinite(balance) || balance < 0) {
-          throw new Error("Invalid session file: balance is missing or invalid.");
-        }
-
+        const trades = Array.isArray(parsed.paperTrading?.trades) ? (parsed.paperTrading.trades as ImportedPaperTrade[]) : [];
+        const restoredSavedIds = Array.isArray(parsed.savedBetIds) ? parsed.savedBetIds.filter((id): id is string => typeof id === "string" && id.length > 0) : [];
+        if (!Number.isFinite(balance) || balance < 0) throw new Error("Invalid session file.");
         const restored = await paper.restoreSession({ balance, trades });
-        if (!restored) {
-          throw new Error("Could not restore paper trades from this file.");
-        }
-
+        if (!restored) throw new Error("Could not restore paper trades.");
         replaceSaved(restoredSavedIds);
-
-        toast({
-          title: "Session restored",
-          description: `Loaded ${trades.length} trades and ${restoredSavedIds.length} saved bets.`,
-        });
+        toast({ title: "Session restored", description: `Loaded ${trades.length} trades and ${restoredSavedIds.length} saved bets.` });
       } catch (uploadError) {
-        const message = uploadError instanceof Error ? uploadError.message : "Invalid backup file.";
-        toast({
-          title: "Upload failed",
-          description: message,
-        });
+        toast({ title: "Upload failed", description: uploadError instanceof Error ? uploadError.message : "Invalid backup file." });
       }
     },
     [paper, replaceSaved, toast]
@@ -216,7 +192,8 @@ const Index = () => {
     "other-future": categorized["other-future"].length,
     saved: categorized.saved.length,
     trades: paper.openTrades.length + paper.closedTrades.length,
-  }), [categorized, paper.openTrades, paper.closedTrades]);
+    micro: micro.openTrades.length + micro.closedTrades.length,
+  }), [categorized, paper.openTrades, paper.closedTrades, micro.openTrades, micro.closedTrades]);
 
   let refCounter = 0;
 
@@ -242,6 +219,8 @@ const Index = () => {
               weather={weatherData?.[event.location.toLowerCase().trim()]}
               isSaved={isSaved(event.id)}
               onToggleSave={() => toggle(event.id)}
+              isMicroSaved={isMicroSaved(event.id)}
+              onToggleMicroSave={() => toggleMicroSave(event.id)}
               refNumber={refCounter}
               isObservation={event.isObs}
               betDate={event.betDate}
@@ -265,35 +244,25 @@ const Index = () => {
               <Thermometer className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-sm sm:text-lg font-bold tracking-tight text-foreground truncate">
-                POLYMARKET TEMP TRACKER
-              </h1>
+              <h1 className="text-sm sm:text-lg font-bold tracking-tight text-foreground truncate">POLYMARKET TEMP TRACKER</h1>
               <p className="text-[9px] sm:text-[11px] uppercase tracking-widest text-muted-foreground truncate">
                 Daily Temperature Bets · Resolution Source Data
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={() => refetch()}
-              disabled={isFetching}
-              className="flex items-center gap-1.5 sm:gap-2 rounded-md border border-border bg-secondary px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs text-secondary-foreground transition-colors hover:bg-secondary/80 disabled:opacity-50 shrink-0"
-            >
+            <button onClick={() => refetch()} disabled={isFetching}
+              className="flex items-center gap-1.5 sm:gap-2 rounded-md border border-border bg-secondary px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs text-secondary-foreground transition-colors hover:bg-secondary/80 disabled:opacity-50 shrink-0">
               <RefreshCw className={`h-3 w-3 sm:h-3.5 sm:w-3.5 ${isFetching ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline">Refresh</span>
             </button>
           </div>
         </div>
 
-        {/* Portfolio Balance - always visible at top */}
-        <div className="mb-4 sm:mb-6">
-          <PortfolioHeader
-            balance={paper.balance}
-            openTrades={paper.openTrades}
-            closedTrades={paper.closedTrades}
-            totalProfit={paper.totalProfit}
-            events={events}
-          />
+        {/* Portfolio Balances */}
+        <div className="mb-4 sm:mb-6 space-y-2">
+          <PortfolioHeader balance={paper.balance} openTrades={paper.openTrades} closedTrades={paper.closedTrades} totalProfit={paper.totalProfit} events={events} label="Paper" />
+          <PortfolioHeader balance={micro.balance} openTrades={micro.openTrades} closedTrades={micro.closedTrades} totalProfit={micro.totalProfit} events={events} label="Micro" />
         </div>
 
         {/* Status Bar */}
@@ -307,16 +276,17 @@ const Index = () => {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex-1 min-w-[80px] rounded-sm px-2 py-1.5 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider transition-colors ${
+              className={`flex-1 min-w-[70px] rounded-sm px-1.5 py-1.5 text-[8px] sm:text-[10px] font-bold uppercase tracking-wider transition-colors ${
                 activeTab === tab.key
-                  ? "bg-primary text-primary-foreground"
+                  ? tab.key === "micro" ? "bg-accent text-accent-foreground" : "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
               }`}
             >
               <span className="hidden sm:inline">{tab.label}</span>
               <span className="sm:hidden">{tab.short}</span>
+              {tab.key === "micro" && microAutoEnabled && <Zap className="inline h-2.5 w-2.5 ml-0.5" />}
               {tabCounts[tab.key] > 0 && (
-                <span className={`ml-1 text-[8px] ${activeTab === tab.key ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                <span className={`ml-1 text-[8px] ${activeTab === tab.key ? "opacity-70" : "text-muted-foreground"}`}>
                   ({tabCounts[tab.key]})
                 </span>
               )}
@@ -341,36 +311,35 @@ const Index = () => {
 
         {!isLoading && !error && activeTab === "trades" && (
           <PaperTradesSummary
-            balance={paper.balance}
-            totalProfit={paper.totalProfit}
-            openTrades={paper.openTrades}
-            closedTrades={paper.closedTrades}
-            events={events}
-            onReset={paper.resetBalance}
-            onResolve={paper.resolveTrade}
-            onSell={paper.sellTrade}
-            onDownloadSession={handleDownloadSession}
-            onUploadSession={handleUploadSession}
+            balance={paper.balance} totalProfit={paper.totalProfit}
+            openTrades={paper.openTrades} closedTrades={paper.closedTrades}
+            events={events} onReset={paper.resetBalance} onResolve={paper.resolveTrade}
+            onSell={paper.sellTrade} onDownloadSession={handleDownloadSession} onUploadSession={handleUploadSession}
           />
         )}
 
-        {!isLoading && !error && activeTab !== "trades" && renderEvents(categorized[activeTab])}
+        {!isLoading && !error && activeTab === "micro" && (
+          <MicroTradesSummary
+            balance={micro.balance} totalProfit={micro.totalProfit}
+            openTrades={micro.openTrades} closedTrades={micro.closedTrades}
+            events={events} onReset={micro.resetBalance} onResolve={micro.resolveTrade}
+            onSell={micro.sellTrade} autoTradeEnabled={microAutoEnabled} onToggleAutoTrade={toggleMicroAuto}
+          />
+        )}
+
+        {!isLoading && !error && activeTab !== "trades" && activeTab !== "micro" && renderEvents(categorized[activeTab])}
 
         {/* Paper Trade Dialog */}
         {tradeTarget && (
           <PaperTradeDialog
-            market={tradeTarget.market}
-            eventId={tradeTarget.event.id}
-            eventTitle={tradeTarget.event.title}
-            balance={paper.balance}
-            onPlace={paper.placeTrade}
-            onClose={() => setTradeTarget(null)}
+            market={tradeTarget.market} eventId={tradeTarget.event.id} eventTitle={tradeTarget.event.title}
+            balance={paper.balance} onPlace={paper.placeTrade} onClose={() => setTradeTarget(null)}
           />
         )}
 
         {/* Footer */}
         <div className="mt-6 sm:mt-8 border-t border-border pt-3 sm:pt-4 text-center text-[9px] sm:text-[10px] uppercase tracking-widest text-muted-foreground">
-          Data from Polymarket Gamma API · Auto-refreshes every 15s · Weather from Resolution Source (2min refresh) · Rounding: ≥0.5 → up
+          Data from Polymarket Gamma API · Auto-refreshes every 15s · Weather scans every 60s · Rounding: ≥0.5 → up
         </div>
       </div>
     </div>
