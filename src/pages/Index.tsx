@@ -47,8 +47,9 @@ function getBetDate(event: TemperatureEvent): string {
 const Index = () => {
   const { data: events, isLoading, error, dataUpdatedAt, refetch, isFetching } = usePolymarketData();
   const [userTimezone, setUserTimezone] = useState("UTC");
-  const { toggle, isSaved } = useSavedBets();
+  const { toggle, isSaved, savedIds, replaceSaved } = useSavedBets();
   const paper = usePaperTrading();
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<TabKey>("asian-past");
   const [tradeTarget, setTradeTarget] = useState<{ market: TemperatureMarket; event: TemperatureEvent } | null>(null);
 
