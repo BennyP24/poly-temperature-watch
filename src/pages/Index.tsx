@@ -128,6 +128,87 @@ const Index = () => {
     return result;
   }, [events, todayStr, isSaved, now]);
 
+  const handleDownloadSession = useCallback(() => {
+    const payload: SessionBackupFile = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      paperTrading: {
+        balance: paper.balance,
+        trades: paper.trades.map((trade) => ({
+          event_id: trade.event_id,
+          event_title: trade.event_title,
+          market_id: trade.market_id,
+          market_title: trade.market_title,
+          side: trade.side,
+          price: trade.price,
+          amount: trade.amount,
+          shares: trade.shares,
+          status: trade.status,
+          payout: trade.payout,
+          profit: trade.profit,
+          created_at: trade.created_at,
+          resolved_at: trade.resolved_at,
+        })),
+      },
+      savedBetIds: savedIds,
+    };
+
+    const formattedDate = payload.exportedAt.replace(/[:.]/g, "-");
+    const filename = `paper-session-${formattedDate}.json`;
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: "Session downloaded",
+      description: `Saved as ${filename}`,
+    });
+  }, [paper.balance, paper.trades, savedIds, toast]);
+
+  const handleUploadSession = useCallback(
+    async (file: File) => {
+      try {
+        const raw = await file.text();
+        const parsed = JSON.parse(raw) as Partial<SessionBackupFile>;
+
+        const balance = Number(parsed.paperTrading?.balance);
+        const trades = Array.isArray(parsed.paperTrading?.trades)
+          ? (parsed.paperTrading.trades as ImportedPaperTrade[])
+          : [];
+        const restoredSavedIds = Array.isArray(parsed.savedBetIds)
+          ? parsed.savedBetIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+          : [];
+
+        if (!Number.isFinite(balance) || balance < 0) {
+          throw new Error("Invalid session file: balance is missing or invalid.");
+        }
+
+        const restored = await paper.restoreSession({ balance, trades });
+        if (!restored) {
+          throw new Error("Could not restore paper trades from this file.");
+        }
+
+        replaceSaved(restoredSavedIds);
+
+        toast({
+          title: "Session restored",
+          description: `Loaded ${trades.length} trades and ${restoredSavedIds.length} saved bets.`,
+        });
+      } catch (uploadError) {
+        const message = uploadError instanceof Error ? uploadError.message : "Invalid backup file.";
+        toast({
+          title: "Upload failed",
+          description: message,
+        });
+      }
+    },
+    [paper, replaceSaved, toast]
+  );
+
   const tabCounts = useMemo(() => ({
     "asian-past": categorized["asian-past"].length,
     "asian-future": categorized["asian-future"].length,
