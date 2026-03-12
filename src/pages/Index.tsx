@@ -1,13 +1,14 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { usePolymarketData } from "@/hooks/usePolymarketData";
 import { useWeatherData } from "@/hooks/useWeatherData";
 import { useSavedBets } from "@/hooks/useSavedBets";
-import { usePaperTrading } from "@/hooks/usePaperTrading";
+import { usePaperTrading, type ImportedPaperTrade } from "@/hooks/usePaperTrading";
 import { StatusBar } from "@/components/StatusBar";
 import { TemperatureBetCard } from "@/components/TemperatureBetCard";
 import { PortfolioHeader } from "@/components/PortfolioHeader";
 import { PaperTradeDialog } from "@/components/PaperTradeDialog";
 import { PaperTradesSummary } from "@/components/PaperTradesSummary";
+import { useToast } from "@/components/ui/use-toast";
 import type { TemperatureEvent, TemperatureMarket } from "@/lib/polymarket";
 import { Thermometer, RefreshCw, AlertTriangle } from "lucide-react";
 
@@ -24,6 +25,16 @@ const TABS: { key: TabKey; label: string; short: string }[] = [
   { key: "trades", label: "Paper Trades", short: "Trades" },
 ];
 
+interface SessionBackupFile {
+  version: 1;
+  exportedAt: string;
+  paperTrading: {
+    balance: number;
+    trades: ImportedPaperTrade[];
+  };
+  savedBetIds: string[];
+}
+
 function isAsianCity(location: string): boolean {
   const lower = location.toLowerCase();
   return ASIAN_CITIES.some(c => lower.includes(c));
@@ -36,8 +47,9 @@ function getBetDate(event: TemperatureEvent): string {
 const Index = () => {
   const { data: events, isLoading, error, dataUpdatedAt, refetch, isFetching } = usePolymarketData();
   const [userTimezone, setUserTimezone] = useState("UTC");
-  const { toggle, isSaved } = useSavedBets();
+  const { toggle, isSaved, savedIds, replaceSaved } = useSavedBets();
   const paper = usePaperTrading();
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<TabKey>("asian-past");
   const [tradeTarget, setTradeTarget] = useState<{ market: TemperatureMarket; event: TemperatureEvent } | null>(null);
 
@@ -115,6 +127,87 @@ const Index = () => {
 
     return result;
   }, [events, todayStr, isSaved, now]);
+
+  const handleDownloadSession = useCallback(() => {
+    const payload: SessionBackupFile = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      paperTrading: {
+        balance: paper.balance,
+        trades: paper.trades.map((trade) => ({
+          event_id: trade.event_id,
+          event_title: trade.event_title,
+          market_id: trade.market_id,
+          market_title: trade.market_title,
+          side: trade.side,
+          price: trade.price,
+          amount: trade.amount,
+          shares: trade.shares,
+          status: trade.status,
+          payout: trade.payout,
+          profit: trade.profit,
+          created_at: trade.created_at,
+          resolved_at: trade.resolved_at,
+        })),
+      },
+      savedBetIds: savedIds,
+    };
+
+    const formattedDate = payload.exportedAt.replace(/[:.]/g, "-");
+    const filename = `paper-session-${formattedDate}.json`;
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: "Session downloaded",
+      description: `Saved as ${filename}`,
+    });
+  }, [paper.balance, paper.trades, savedIds, toast]);
+
+  const handleUploadSession = useCallback(
+    async (file: File) => {
+      try {
+        const raw = await file.text();
+        const parsed = JSON.parse(raw) as Partial<SessionBackupFile>;
+
+        const balance = Number(parsed.paperTrading?.balance);
+        const trades = Array.isArray(parsed.paperTrading?.trades)
+          ? (parsed.paperTrading.trades as ImportedPaperTrade[])
+          : [];
+        const restoredSavedIds = Array.isArray(parsed.savedBetIds)
+          ? parsed.savedBetIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+          : [];
+
+        if (!Number.isFinite(balance) || balance < 0) {
+          throw new Error("Invalid session file: balance is missing or invalid.");
+        }
+
+        const restored = await paper.restoreSession({ balance, trades });
+        if (!restored) {
+          throw new Error("Could not restore paper trades from this file.");
+        }
+
+        replaceSaved(restoredSavedIds);
+
+        toast({
+          title: "Session restored",
+          description: `Loaded ${trades.length} trades and ${restoredSavedIds.length} saved bets.`,
+        });
+      } catch (uploadError) {
+        const message = uploadError instanceof Error ? uploadError.message : "Invalid backup file.";
+        toast({
+          title: "Upload failed",
+          description: message,
+        });
+      }
+    },
+    [paper, replaceSaved, toast]
+  );
 
   const tabCounts = useMemo(() => ({
     "asian-past": categorized["asian-past"].length,
@@ -252,8 +345,12 @@ const Index = () => {
             totalProfit={paper.totalProfit}
             openTrades={paper.openTrades}
             closedTrades={paper.closedTrades}
+            events={events}
             onReset={paper.resetBalance}
             onResolve={paper.resolveTrade}
+            onSell={paper.sellTrade}
+            onDownloadSession={handleDownloadSession}
+            onUploadSession={handleUploadSession}
           />
         )}
 
@@ -273,7 +370,7 @@ const Index = () => {
 
         {/* Footer */}
         <div className="mt-6 sm:mt-8 border-t border-border pt-3 sm:pt-4 text-center text-[9px] sm:text-[10px] uppercase tracking-widest text-muted-foreground">
-          Data from Polymarket Gamma API · Auto-refreshes every 60s · Weather from Resolution Source (2min refresh) · Rounding: ≥0.5 → up
+          Data from Polymarket Gamma API · Auto-refreshes every 15s · Weather from Resolution Source (2min refresh) · Rounding: ≥0.5 → up
         </div>
       </div>
     </div>

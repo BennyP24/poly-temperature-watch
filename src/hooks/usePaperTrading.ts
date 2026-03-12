@@ -76,6 +76,31 @@ export interface PaperTrade {
   resolved_at: string | null;
 }
 
+export interface ImportedPaperTrade {
+  event_id: string;
+  event_title: string;
+  market_id: string;
+  market_title: string;
+  side: string;
+  price: number;
+  amount: number;
+  shares: number;
+  status: string;
+  payout?: number;
+  profit?: number;
+  created_at?: string;
+  resolved_at?: string | null;
+}
+
+const ALLOWED_STATUSES = new Set(["open", "won", "lost", "sold", "cancelled"]);
+
+function sanitizeTradeStatus(status: string | undefined): string {
+  if (!status) return "open";
+  const normalized = status.toLowerCase();
+  return ALLOWED_STATUSES.has(normalized) ? normalized : "open";
+}
+
+
 export function usePaperTrading() {
   const [accountId, setAccountId] = useState<string | null>(() => safeLocalStorageGet(ACCOUNT_KEY));
   const [balance, setBalance] = useState(1000);
@@ -152,6 +177,7 @@ export function usePaperTrading() {
       setTrades(
         data.map((t) => ({
           ...t,
+          status: sanitizeTradeStatus(t.status),
           price: Number(t.price),
           amount: Number(t.amount),
           shares: Number(t.shares),
@@ -301,8 +327,127 @@ export function usePaperTrading() {
     [accountId, balance, trades, loadTrades]
   );
 
+  const sellTrade = useCallback(
+    async (tradeId: string, bidPrice: number) => {
+      if (!accountId) return false;
+      if (bidPrice <= 0 || bidPrice >= 1) return false;
+
+      const trade = trades.find((t) => t.id === tradeId);
+      if (!trade || trade.status !== "open") return false;
+
+      const payout = trade.shares * bidPrice;
+      const profit = payout - trade.amount;
+      const nextBalance = balance + payout;
+      const nowIso = new Date().toISOString();
+
+      const { error: tradeError } = await supabase
+        .from("paper_trades")
+        .update({
+          status: "sold",
+          payout,
+          profit,
+          resolved_at: nowIso,
+        })
+        .eq("id", tradeId)
+        .eq("account_id", accountId)
+        .eq("status", "open");
+
+      if (tradeError) {
+        console.error("Failed to sell paper trade", tradeError);
+        return false;
+      }
+
+      const { error: accountError } = await supabase
+        .from("paper_accounts")
+        .update({ balance: nextBalance, updated_at: nowIso })
+        .eq("id", accountId);
+
+      if (accountError) {
+        console.error("Failed to apply sold trade payout", accountError);
+        return false;
+      }
+
+      setBalance(nextBalance);
+      await loadTrades();
+      return true;
+    },
+    [accountId, balance, trades, loadTrades]
+  );
+
+  const restoreSession = useCallback(
+    async (payload: { balance: number; trades: ImportedPaperTrade[] }) => {
+      if (!accountId) return false;
+
+      const nextBalance = Number(payload.balance);
+      if (!Number.isFinite(nextBalance) || nextBalance < 0) return false;
+
+      const nowIso = new Date().toISOString();
+
+      const { error: accountError } = await supabase
+        .from("paper_accounts")
+        .update({ balance: nextBalance, updated_at: nowIso })
+        .eq("id", accountId);
+
+      if (accountError) {
+        console.error("Failed to restore account balance", accountError);
+        return false;
+      }
+
+      const { error: deleteError } = await supabase
+        .from("paper_trades")
+        .delete()
+        .eq("account_id", accountId);
+
+      if (deleteError) {
+        console.error("Failed to clear existing paper trades", deleteError);
+        return false;
+      }
+
+      const insertable = payload.trades
+        .map((trade) => ({
+          account_id: accountId,
+          event_id: trade.event_id,
+          event_title: trade.event_title,
+          market_id: trade.market_id,
+          market_title: trade.market_title,
+          side: trade.side === "no" ? "no" : "yes",
+          price: Number(trade.price),
+          amount: Number(trade.amount),
+          shares: Number(trade.shares),
+          status: sanitizeTradeStatus(trade.status),
+          payout: Number(trade.payout ?? 0),
+          profit: Number(trade.profit ?? 0),
+          resolved_at: trade.resolved_at ?? null,
+          created_at: trade.created_at ? new Date(trade.created_at).toISOString() : nowIso,
+        }))
+        .filter(
+          (trade) =>
+            Number.isFinite(trade.price) &&
+            trade.price > 0 &&
+            Number.isFinite(trade.amount) &&
+            trade.amount >= 0 &&
+            Number.isFinite(trade.shares) &&
+            trade.shares >= 0
+        );
+
+      if (insertable.length > 0) {
+        const { error: insertError } = await supabase.from("paper_trades").insert(insertable);
+
+        if (insertError) {
+          console.error("Failed to import paper trades", insertError);
+          return false;
+        }
+      }
+
+      setBalance(nextBalance);
+      await loadTrades();
+      return true;
+    },
+    [accountId, loadTrades]
+  );
+
   const totalProfit = trades
-    .filter((t) => t.status === "won" || t.status === "lost")
+    .filter((t) => t.status === "won" || t.status === "lost" || t.status === "sold")
     .reduce((sum, t) => sum + t.profit, 0);
 
   const openTrades = trades.filter((t) => t.status === "open");
@@ -318,5 +463,7 @@ export function usePaperTrading() {
     placeTrade,
     resetBalance,
     resolveTrade,
+    sellTrade,
+    restoreSession,
   };
 }
