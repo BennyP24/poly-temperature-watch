@@ -42,6 +42,7 @@ export type Database = {
         Row: {
           account_id: string
           amount: number
+          bet_url: string | null
           created_at: string
           event_id: string
           event_title: string
@@ -59,6 +60,7 @@ export type Database = {
         Insert: {
           account_id: string
           amount: number
+          bet_url?: string | null
           created_at?: string
           event_id: string
           event_title: string
@@ -76,6 +78,7 @@ export type Database = {
         Update: {
           account_id?: string
           amount?: number
+          bet_url?: string | null
           created_at?: string
           event_id?: string
           event_title?: string
