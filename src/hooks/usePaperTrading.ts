@@ -177,6 +177,7 @@ export function usePaperTrading() {
       setTrades(
         data.map((t) => ({
           ...t,
+          status: sanitizeTradeStatus(t.status),
           price: Number(t.price),
           amount: Number(t.amount),
           shares: Number(t.shares),
