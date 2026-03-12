@@ -11,6 +11,8 @@ interface TemperatureBetCardProps {
   weather?: CityWeather;
   isSaved: boolean;
   onToggleSave: () => void;
+  isMicroSaved?: boolean;
+  onToggleMicroSave?: () => void;
   refNumber: number;
   isObservation: boolean;
   betDate?: string;
