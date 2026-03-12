@@ -76,6 +76,31 @@ export interface PaperTrade {
   resolved_at: string | null;
 }
 
+export interface ImportedPaperTrade {
+  event_id: string;
+  event_title: string;
+  market_id: string;
+  market_title: string;
+  side: string;
+  price: number;
+  amount: number;
+  shares: number;
+  status: string;
+  payout?: number;
+  profit?: number;
+  created_at?: string;
+  resolved_at?: string | null;
+}
+
+const ALLOWED_STATUSES = new Set(["open", "won", "lost", "sold", "cancelled"]);
+
+function sanitizeTradeStatus(status: string | undefined): string {
+  if (!status) return "open";
+  const normalized = status.toLowerCase();
+  return ALLOWED_STATUSES.has(normalized) ? normalized : "open";
+}
+
+
 export function usePaperTrading() {
   const [accountId, setAccountId] = useState<string | null>(() => safeLocalStorageGet(ACCOUNT_KEY));
   const [balance, setBalance] = useState(1000);
