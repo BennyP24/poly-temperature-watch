@@ -370,7 +370,7 @@ const Index = () => {
 
         {/* Footer */}
         <div className="mt-6 sm:mt-8 border-t border-border pt-3 sm:pt-4 text-center text-[9px] sm:text-[10px] uppercase tracking-widest text-muted-foreground">
-          Data from Polymarket Gamma API · Auto-refreshes every 60s · Weather from Resolution Source (2min refresh) · Rounding: ≥0.5 → up
+          Data from Polymarket Gamma API · Auto-refreshes every 15s · Weather from Resolution Source (2min refresh) · Rounding: ≥0.5 → up
         </div>
       </div>
     </div>
