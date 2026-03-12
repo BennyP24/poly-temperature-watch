@@ -25,6 +25,16 @@ const TABS: { key: TabKey; label: string; short: string }[] = [
   { key: "trades", label: "Paper Trades", short: "Trades" },
 ];
 
+interface SessionBackupFile {
+  version: 1;
+  exportedAt: string;
+  paperTrading: {
+    balance: number;
+    trades: ImportedPaperTrade[];
+  };
+  savedBetIds: string[];
+}
+
 function isAsianCity(location: string): boolean {
   const lower = location.toLowerCase();
   return ASIAN_CITIES.some(c => lower.includes(c));
