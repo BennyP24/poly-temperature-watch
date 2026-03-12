@@ -58,7 +58,7 @@ function getDateWeather(weather: CityWeather | undefined, betDate: string | unde
   return weather.dates[betDate] ?? null;
 }
 
-export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, refNumber, isObservation, betDate, onPlaceTrade }: TemperatureBetCardProps) {
+export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, isMicroSaved, onToggleMicroSave, refNumber, isObservation, betDate, onPlaceTrade }: TemperatureBetCardProps) {
   const dateWeather = getDateWeather(weather, betDate);
   
   // For observations, use the date-specific data; for forecasts, use forecast data
