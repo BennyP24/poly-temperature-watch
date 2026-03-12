@@ -58,7 +58,7 @@ export function PaperTradesSummary({
     return lookup;
   }, [events]);
 
-  const handleUploadInput = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadInput = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
