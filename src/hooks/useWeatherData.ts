@@ -52,8 +52,8 @@ export function useWeatherData(cities: string[]) {
       if (!response.ok) throw new Error(`Weather fetch failed: ${response.status}`);
       return response.json();
     },
-    refetchInterval: 2 * 60_000,
-    staleTime: 60_000,
+    refetchInterval: 60_000, // Every minute for continuous highest-temp scanning
+    staleTime: 30_000,
     enabled: cities.length > 0,
   });
 }

@@ -1,24 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-const DEVICE_KEY = "paper-device-id";
 const DEVICE_COOKIE_KEY = "paper_device_id";
-const ACCOUNT_KEY = "paper-account-id";
 
 function safeLocalStorageGet(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
+  try { return localStorage.getItem(key); } catch { return null; }
 }
 
 function safeLocalStorageSet(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // ignore storage failures
-  }
+  try { localStorage.setItem(key, value); } catch { /* ignore */ }
 }
 
 function readCookie(name: string): string | null {
@@ -31,31 +21,24 @@ function writeCookie(name: string, value: string): void {
   if (typeof document === "undefined") return;
   const encoded = encodeURIComponent(value);
   const base = `${name}=${encoded}; path=/; max-age=31536000; samesite=lax`;
-
-  // Cross-subdomain persistence on lovable.app previews/published.
   document.cookie = `${base}; domain=.lovable.app`;
-  if (!readCookie(name)) {
-    document.cookie = base;
-  }
+  if (!readCookie(name)) document.cookie = base;
 }
 
 function generateDeviceId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
   return `paper-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function getDeviceId(): string {
+function getDeviceId(prefix: string): string {
   if (typeof window === "undefined") return "";
-
-  const localId = safeLocalStorageGet(DEVICE_KEY);
-  const cookieId = readCookie(DEVICE_COOKIE_KEY);
+  const lsKey = `${prefix}-device-id`;
+  const ckKey = `${prefix}_device_id`;
+  const localId = safeLocalStorageGet(lsKey);
+  const cookieId = readCookie(ckKey);
   const id = localId || cookieId || generateDeviceId();
-
-  if (localId !== id) safeLocalStorageSet(DEVICE_KEY, id);
-  if (cookieId !== id) writeCookie(DEVICE_COOKIE_KEY, id);
-
+  if (localId !== id) safeLocalStorageSet(lsKey, id);
+  if (cookieId !== id) writeCookie(ckKey, id);
   return id;
 }
 
@@ -74,6 +57,7 @@ export interface PaperTrade {
   profit: number;
   created_at: string;
   resolved_at: string | null;
+  bet_url?: string | null;
 }
 
 export interface ImportedPaperTrade {
@@ -93,159 +77,94 @@ export interface ImportedPaperTrade {
 }
 
 const ALLOWED_STATUSES = new Set(["open", "won", "lost", "sold", "cancelled"]);
-
 function sanitizeTradeStatus(status: string | undefined): string {
   if (!status) return "open";
   const normalized = status.toLowerCase();
   return ALLOWED_STATUSES.has(normalized) ? normalized : "open";
 }
 
-
-export function usePaperTrading() {
-  const [accountId, setAccountId] = useState<string | null>(() => safeLocalStorageGet(ACCOUNT_KEY));
+export function usePaperTrading(prefix = "paper") {
+  const [accountId, setAccountId] = useState<string | null>(() => safeLocalStorageGet(`${prefix}-account-id`));
   const [balance, setBalance] = useState(1000);
   const [trades, setTrades] = useState<PaperTrade[]>([]);
   const [loading, setLoading] = useState(true);
-  const [deviceId] = useState<string>(() => getDeviceId());
+  const [deviceId] = useState<string>(() => getDeviceId(prefix));
 
   const loadAccount = useCallback(async () => {
-    if (!deviceId) {
-      setLoading(false);
-      return;
-    }
-
+    if (!deviceId) { setLoading(false); return; }
     setLoading(true);
-
     try {
-      // Use upsert to handle race conditions - device_id has unique constraint
       const { data: account, error: upsertError } = await supabase
         .from("paper_accounts")
-        .upsert(
-          { device_id: deviceId, balance: 1000 },
-          { onConflict: "device_id", ignoreDuplicates: true }
-        )
-        .select()
-        .single();
+        .upsert({ device_id: deviceId, balance: 1000 }, { onConflict: "device_id", ignoreDuplicates: true })
+        .select().single();
 
       if (upsertError) {
-        // upsert with ignoreDuplicates returns nothing if row exists, so fetch it
-        const { data: existing, error: fetchError } = await supabase
-          .from("paper_accounts")
-          .select("*")
-          .eq("device_id", deviceId)
-          .limit(1)
-          .maybeSingle();
-
-        if (fetchError) {
-          console.error("Failed to load paper account", fetchError);
-          return;
-        }
-
+        const { data: existing } = await supabase
+          .from("paper_accounts").select("*").eq("device_id", deviceId).limit(1).maybeSingle();
         if (existing) {
           setAccountId(existing.id);
-          safeLocalStorageSet(ACCOUNT_KEY, existing.id);
+          safeLocalStorageSet(`${prefix}-account-id`, existing.id);
           setBalance(Number(existing.balance));
         }
         return;
       }
-
       if (account) {
         setAccountId(account.id);
-        safeLocalStorageSet(ACCOUNT_KEY, account.id);
+        safeLocalStorageSet(`${prefix}-account-id`, account.id);
         setBalance(Number(account.balance));
       }
-    } finally {
-      setLoading(false);
-    }
-  }, [deviceId]);
+    } finally { setLoading(false); }
+  }, [deviceId, prefix]);
 
   const loadTrades = useCallback(async () => {
     if (!accountId) return;
-
-    const { data, error } = await supabase
-      .from("paper_trades")
-      .select("*")
-      .eq("account_id", accountId)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error("Failed to load paper trades", error);
-      return;
-    }
-
+    const { data } = await supabase
+      .from("paper_trades").select("*").eq("account_id", accountId).order("created_at", { ascending: false });
     if (data) {
-      setTrades(
-        data.map((t) => ({
-          ...t,
-          status: sanitizeTradeStatus(t.status),
-          price: Number(t.price),
-          amount: Number(t.amount),
-          shares: Number(t.shares),
-          payout: Number(t.payout ?? 0),
-          profit: Number(t.profit ?? 0),
-        }))
-      );
+      setTrades(data.map((t) => ({
+        ...t,
+        status: sanitizeTradeStatus(t.status),
+        price: Number(t.price),
+        amount: Number(t.amount),
+        shares: Number(t.shares),
+        payout: Number(t.payout ?? 0),
+        profit: Number(t.profit ?? 0),
+      })));
     }
   }, [accountId]);
 
-  useEffect(() => {
-    loadAccount();
-  }, [loadAccount]);
-
-  useEffect(() => {
-    loadTrades();
-  }, [loadTrades]);
+  useEffect(() => { loadAccount(); }, [loadAccount]);
+  useEffect(() => { loadTrades(); }, [loadTrades]);
 
   const placeTrade = useCallback(
     async (params: {
-      eventId: string;
-      eventTitle: string;
-      marketId: string;
-      marketTitle: string;
-      side: "yes" | "no";
-      price: number;
-      amount: number;
+      eventId: string; eventTitle: string; marketId: string; marketTitle: string;
+      side: "yes" | "no"; price: number; amount: number; betUrl?: string;
     }) => {
       if (!accountId) return false;
-      if (params.amount > balance) return false;
-      if (params.amount <= 0 || params.price <= 0 || params.price >= 1) return false;
-
+      if (params.amount > balance || params.amount <= 0 || params.price <= 0 || params.price >= 1) return false;
       const shares = params.amount / params.price;
       const nextBalance = balance - params.amount;
       const nowIso = new Date().toISOString();
 
       const { error: balanceError } = await supabase
-        .from("paper_accounts")
-        .update({ balance: nextBalance, updated_at: nowIso })
-        .eq("id", accountId);
-
-      if (balanceError) {
-        console.error("Failed to update balance while placing trade", balanceError);
-        return false;
-      }
+        .from("paper_accounts").update({ balance: nextBalance, updated_at: nowIso }).eq("id", accountId);
+      if (balanceError) return false;
 
       const { error: tradeError } = await supabase.from("paper_trades").insert({
         account_id: accountId,
-        event_id: params.eventId,
-        event_title: params.eventTitle,
-        market_id: params.marketId,
-        market_title: params.marketTitle,
-        side: params.side,
-        price: params.price,
-        amount: params.amount,
-        shares,
-        status: "open",
+        event_id: params.eventId, event_title: params.eventTitle,
+        market_id: params.marketId, market_title: params.marketTitle,
+        side: params.side, price: params.price, amount: params.amount,
+        shares, status: "open",
+        bet_url: params.betUrl ?? null,
       });
 
       if (tradeError) {
-        console.error("Failed to insert paper trade", tradeError);
-        await supabase
-          .from("paper_accounts")
-          .update({ balance, updated_at: new Date().toISOString() })
-          .eq("id", accountId);
+        await supabase.from("paper_accounts").update({ balance, updated_at: new Date().toISOString() }).eq("id", accountId);
         return false;
       }
-
       setBalance(nextBalance);
       await loadTrades();
       return true;
@@ -255,30 +174,9 @@ export function usePaperTrading() {
 
   const resetBalance = useCallback(async () => {
     if (!accountId) return;
-
     const nowIso = new Date().toISOString();
-
-    const { error: accountError } = await supabase
-      .from("paper_accounts")
-      .update({ balance: 1000, updated_at: nowIso })
-      .eq("id", accountId);
-
-    if (accountError) {
-      console.error("Failed to reset paper account balance", accountError);
-      return;
-    }
-
-    const { error: tradesError } = await supabase
-      .from("paper_trades")
-      .update({ status: "cancelled" })
-      .eq("account_id", accountId)
-      .eq("status", "open");
-
-    if (tradesError) {
-      console.error("Failed to cancel open trades", tradesError);
-      return;
-    }
-
+    await supabase.from("paper_accounts").update({ balance: 1000, updated_at: nowIso }).eq("id", accountId);
+    await supabase.from("paper_trades").update({ status: "cancelled" }).eq("account_id", accountId).eq("status", "open");
     setBalance(1000);
     await loadTrades();
   }, [accountId, loadTrades]);
@@ -286,41 +184,14 @@ export function usePaperTrading() {
   const resolveTrade = useCallback(
     async (tradeId: string, won: boolean) => {
       if (!accountId) return;
-
       const trade = trades.find((t) => t.id === tradeId);
       if (!trade || trade.status !== "open") return;
-
       const payout = won ? trade.shares : 0;
       const profit = payout - trade.amount;
       const nextBalance = balance + payout;
       const nowIso = new Date().toISOString();
-
-      const { error: tradeError } = await supabase
-        .from("paper_trades")
-        .update({
-          status: won ? "won" : "lost",
-          payout,
-          profit,
-          resolved_at: nowIso,
-        })
-        .eq("id", tradeId)
-        .eq("account_id", accountId);
-
-      if (tradeError) {
-        console.error("Failed to resolve paper trade", tradeError);
-        return;
-      }
-
-      const { error: accountError } = await supabase
-        .from("paper_accounts")
-        .update({ balance: nextBalance, updated_at: nowIso })
-        .eq("id", accountId);
-
-      if (accountError) {
-        console.error("Failed to apply resolved trade payout", accountError);
-        return;
-      }
-
+      await supabase.from("paper_trades").update({ status: won ? "won" : "lost", payout, profit, resolved_at: nowIso }).eq("id", tradeId).eq("account_id", accountId);
+      await supabase.from("paper_accounts").update({ balance: nextBalance, updated_at: nowIso }).eq("id", accountId);
       setBalance(nextBalance);
       await loadTrades();
     },
@@ -329,44 +200,15 @@ export function usePaperTrading() {
 
   const sellTrade = useCallback(
     async (tradeId: string, bidPrice: number) => {
-      if (!accountId) return false;
-      if (bidPrice <= 0 || bidPrice >= 1) return false;
-
+      if (!accountId || bidPrice <= 0 || bidPrice >= 1) return false;
       const trade = trades.find((t) => t.id === tradeId);
       if (!trade || trade.status !== "open") return false;
-
       const payout = trade.shares * bidPrice;
       const profit = payout - trade.amount;
       const nextBalance = balance + payout;
       const nowIso = new Date().toISOString();
-
-      const { error: tradeError } = await supabase
-        .from("paper_trades")
-        .update({
-          status: "sold",
-          payout,
-          profit,
-          resolved_at: nowIso,
-        })
-        .eq("id", tradeId)
-        .eq("account_id", accountId)
-        .eq("status", "open");
-
-      if (tradeError) {
-        console.error("Failed to sell paper trade", tradeError);
-        return false;
-      }
-
-      const { error: accountError } = await supabase
-        .from("paper_accounts")
-        .update({ balance: nextBalance, updated_at: nowIso })
-        .eq("id", accountId);
-
-      if (accountError) {
-        console.error("Failed to apply sold trade payout", accountError);
-        return false;
-      }
-
+      await supabase.from("paper_trades").update({ status: "sold", payout, profit, resolved_at: nowIso }).eq("id", tradeId).eq("account_id", accountId).eq("status", "open");
+      await supabase.from("paper_accounts").update({ balance: nextBalance, updated_at: nowIso }).eq("id", accountId);
       setBalance(nextBalance);
       await loadTrades();
       return true;
@@ -377,68 +219,25 @@ export function usePaperTrading() {
   const restoreSession = useCallback(
     async (payload: { balance: number; trades: ImportedPaperTrade[] }) => {
       if (!accountId) return false;
-
       const nextBalance = Number(payload.balance);
       if (!Number.isFinite(nextBalance) || nextBalance < 0) return false;
-
       const nowIso = new Date().toISOString();
-
-      const { error: accountError } = await supabase
-        .from("paper_accounts")
-        .update({ balance: nextBalance, updated_at: nowIso })
-        .eq("id", accountId);
-
-      if (accountError) {
-        console.error("Failed to restore account balance", accountError);
-        return false;
-      }
-
-      const { error: deleteError } = await supabase
-        .from("paper_trades")
-        .delete()
-        .eq("account_id", accountId);
-
-      if (deleteError) {
-        console.error("Failed to clear existing paper trades", deleteError);
-        return false;
-      }
-
+      await supabase.from("paper_accounts").update({ balance: nextBalance, updated_at: nowIso }).eq("id", accountId);
+      await supabase.from("paper_trades").delete().eq("account_id", accountId);
       const insertable = payload.trades
         .map((trade) => ({
           account_id: accountId,
-          event_id: trade.event_id,
-          event_title: trade.event_title,
-          market_id: trade.market_id,
-          market_title: trade.market_title,
+          event_id: trade.event_id, event_title: trade.event_title,
+          market_id: trade.market_id, market_title: trade.market_title,
           side: trade.side === "no" ? "no" : "yes",
-          price: Number(trade.price),
-          amount: Number(trade.amount),
-          shares: Number(trade.shares),
+          price: Number(trade.price), amount: Number(trade.amount), shares: Number(trade.shares),
           status: sanitizeTradeStatus(trade.status),
-          payout: Number(trade.payout ?? 0),
-          profit: Number(trade.profit ?? 0),
+          payout: Number(trade.payout ?? 0), profit: Number(trade.profit ?? 0),
           resolved_at: trade.resolved_at ?? null,
           created_at: trade.created_at ? new Date(trade.created_at).toISOString() : nowIso,
         }))
-        .filter(
-          (trade) =>
-            Number.isFinite(trade.price) &&
-            trade.price > 0 &&
-            Number.isFinite(trade.amount) &&
-            trade.amount >= 0 &&
-            Number.isFinite(trade.shares) &&
-            trade.shares >= 0
-        );
-
-      if (insertable.length > 0) {
-        const { error: insertError } = await supabase.from("paper_trades").insert(insertable);
-
-        if (insertError) {
-          console.error("Failed to import paper trades", insertError);
-          return false;
-        }
-      }
-
+        .filter((t) => Number.isFinite(t.price) && t.price > 0 && Number.isFinite(t.amount) && t.amount >= 0 && Number.isFinite(t.shares) && t.shares >= 0);
+      if (insertable.length > 0) await supabase.from("paper_trades").insert(insertable);
       setBalance(nextBalance);
       await loadTrades();
       return true;
@@ -454,16 +253,8 @@ export function usePaperTrading() {
   const closedTrades = trades.filter((t) => t.status !== "open" && t.status !== "cancelled");
 
   return {
-    balance,
-    trades,
-    openTrades,
-    closedTrades,
-    totalProfit,
-    loading,
-    placeTrade,
-    resetBalance,
-    resolveTrade,
-    sellTrade,
-    restoreSession,
+    accountId,
+    balance, trades, openTrades, closedTrades, totalProfit, loading,
+    placeTrade, resetBalance, resolveTrade, sellTrade, restoreSession,
   };
 }
