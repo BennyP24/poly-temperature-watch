@@ -1,13 +1,14 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { usePolymarketData } from "@/hooks/usePolymarketData";
 import { useWeatherData } from "@/hooks/useWeatherData";
 import { useSavedBets } from "@/hooks/useSavedBets";
-import { usePaperTrading } from "@/hooks/usePaperTrading";
+import { usePaperTrading, type ImportedPaperTrade } from "@/hooks/usePaperTrading";
 import { StatusBar } from "@/components/StatusBar";
 import { TemperatureBetCard } from "@/components/TemperatureBetCard";
 import { PortfolioHeader } from "@/components/PortfolioHeader";
 import { PaperTradeDialog } from "@/components/PaperTradeDialog";
 import { PaperTradesSummary } from "@/components/PaperTradesSummary";
+import { useToast } from "@/components/ui/use-toast";
 import type { TemperatureEvent, TemperatureMarket } from "@/lib/polymarket";
 import { Thermometer, RefreshCw, AlertTriangle } from "lucide-react";
 
