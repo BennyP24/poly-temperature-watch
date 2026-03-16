@@ -17,6 +17,8 @@ export interface DateWeather {
   isToday: boolean;
   isPast: boolean;
   isFuture: boolean;
+  observedCoolingConfirmed: boolean;
+  coolingStartHour: number | null;
   hourly: HourlyTemp[];
 }
 
@@ -30,6 +32,8 @@ export interface CityWeather {
   peakHour: number | null;
   currentHour: number;
   pastPeak: boolean;
+  observedCoolingConfirmed: boolean;
+  coolingStartHour: number | null;
   timezone: string;
   dates?: Record<string, DateWeather>;
   error?: string;
@@ -52,8 +56,8 @@ export function useWeatherData(cities: string[]) {
       if (!response.ok) throw new Error(`Weather fetch failed: ${response.status}`);
       return response.json();
     },
-    refetchInterval: 60_000, // Every minute for continuous highest-temp scanning
-    staleTime: 30_000,
+    refetchInterval: 30_000,
+    staleTime: 15_000,
     enabled: cities.length > 0,
   });
 }

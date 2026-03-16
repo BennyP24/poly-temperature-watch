@@ -1,6 +1,7 @@
 import { useMemo, useRef, type ChangeEvent } from "react";
 import type { PaperTrade } from "@/hooks/usePaperTrading";
 import type { TemperatureEvent } from "@/lib/polymarket";
+import type { MarketPrice } from "@/hooks/useMarketPrices";
 import {
   DollarSign, RotateCcw, TrendingUp, TrendingDown, ExternalLink,
   Upload, Download, HandCoins, Zap,
@@ -12,16 +13,20 @@ interface MicroTradesSummaryProps {
   openTrades: PaperTrade[];
   closedTrades: PaperTrade[];
   events?: TemperatureEvent[];
+  realTimePrices?: Map<string, MarketPrice>;
   onReset: () => void;
   onResolve: (tradeId: string, won: boolean) => void | Promise<void>;
   onSell: (tradeId: string, bidPrice: number) => void | Promise<boolean>;
   autoTradeEnabled: boolean;
   onToggleAutoTrade: () => void;
+  midnightCountdown?: { isBoostActive: boolean; secondsUntilMidnight: number };
 }
 
 export function MicroTradesSummary({
   balance, totalProfit, openTrades, closedTrades, events,
+  realTimePrices,
   onReset, onResolve, onSell, autoTradeEnabled, onToggleAutoTrade,
+  midnightCountdown,
 }: MicroTradesSummaryProps) {
   const wins = closedTrades.filter((t) => t.status === "won").length;
   const losses = closedTrades.filter((t) => t.status === "lost").length;
@@ -31,11 +36,16 @@ export function MicroTradesSummary({
     const lookup = new Map<string, { yesPrice: number; noPrice: number; url: string }>();
     for (const event of events ?? []) {
       for (const market of event.markets) {
-        lookup.set(market.id, { yesPrice: market.yesPrice, noPrice: market.noPrice, url: event.polymarketUrl });
+        const rtPrice = realTimePrices?.get(market.id);
+        lookup.set(market.id, {
+          yesPrice: rtPrice?.yesPrice ?? market.yesPrice,
+          noPrice: rtPrice?.noPrice ?? market.noPrice,
+          url: event.polymarketUrl,
+        });
       }
     }
     return lookup;
-  }, [events]);
+  }, [events, realTimePrices]);
 
   return (
     <div className="space-y-4">
@@ -46,6 +56,12 @@ export function MicroTradesSummary({
             <h3 className="text-sm font-bold text-foreground">Micro Trades Account</h3>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
+            {midnightCountdown && midnightCountdown.secondsUntilMidnight <= 600 && (
+              <span className={`flex items-center gap-1 rounded-sm px-2 py-1 text-[10px] font-bold tabular-nums ${midnightCountdown.isBoostActive ? "bg-destructive text-destructive-foreground animate-pulse" : "bg-muted text-muted-foreground"}`}>
+                UTC 00:00 in {Math.floor(midnightCountdown.secondsUntilMidnight / 60)}m {midnightCountdown.secondsUntilMidnight % 60}s
+                {midnightCountdown.isBoostActive && " · BOOST"}
+              </span>
+            )}
             <button
               onClick={onToggleAutoTrade}
               className={`flex items-center gap-1 rounded-sm px-2 py-1 text-[10px] font-bold transition-colors ${
@@ -55,7 +71,7 @@ export function MicroTradesSummary({
               }`}
             >
               <Zap className="h-3 w-3" />
-              Auto-Buy NO ≤3¢ {autoTradeEnabled ? "ON" : "OFF"}
+              Auto-Buy ≤3¢ {autoTradeEnabled ? "ON" : "OFF"}
             </button>
             <button
               onClick={onReset}

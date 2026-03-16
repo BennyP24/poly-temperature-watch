@@ -1,6 +1,7 @@
 import { useMemo, useRef, type ChangeEvent } from "react";
 import type { PaperTrade } from "@/hooks/usePaperTrading";
 import type { TemperatureEvent } from "@/lib/polymarket";
+import type { MarketPrice } from "@/hooks/useMarketPrices";
 import {
   DollarSign,
   RotateCcw,
@@ -18,6 +19,7 @@ interface PaperTradesSummaryProps {
   openTrades: PaperTrade[];
   closedTrades: PaperTrade[];
   events?: TemperatureEvent[];
+  realTimePrices?: Map<string, MarketPrice>;
   onReset: () => void;
   onResolve: (tradeId: string, won: boolean) => void | Promise<void>;
   onSell: (tradeId: string, bidPrice: number) => void | Promise<boolean>;
@@ -31,6 +33,7 @@ export function PaperTradesSummary({
   openTrades,
   closedTrades,
   events,
+  realTimePrices,
   onReset,
   onResolve,
   onSell,
@@ -47,16 +50,17 @@ export function PaperTradesSummary({
 
     for (const event of events ?? []) {
       for (const market of event.markets) {
+        const rtPrice = realTimePrices?.get(market.id);
         lookup.set(market.id, {
-          yesPrice: market.yesPrice,
-          noPrice: market.noPrice,
+          yesPrice: rtPrice?.yesPrice ?? market.yesPrice,
+          noPrice: rtPrice?.noPrice ?? market.noPrice,
           url: event.polymarketUrl,
         });
       }
     }
 
     return lookup;
-  }, [events]);
+  }, [events, realTimePrices]);
 
   const handleUploadInput = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];

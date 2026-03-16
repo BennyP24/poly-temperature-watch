@@ -69,6 +69,9 @@ const CITY_TIMEZONES: Record<string, string> = {
   ankara: "Europe/Istanbul",
   lucknow: "Asia/Kolkata",
   "tel aviv": "Asia/Jerusalem",
+  "ben gurion": "Asia/Jerusalem",
+  jerusalem: "Asia/Jerusalem",
+  haifa: "Asia/Jerusalem",
   wellington: "Pacific/Auckland",
 };
 

@@ -1,13 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchTemperatureEvents, type TemperatureEvent } from "@/lib/polymarket";
 
-export function usePolymarketData() {
+export function usePolymarketData(overrideIntervalMs?: number) {
   return useQuery<TemperatureEvent[]>({
     queryKey: ["polymarket-temperature"],
     queryFn: fetchTemperatureEvents,
-    refetchInterval: 15_000,
+    refetchInterval: overrideIntervalMs ?? 5_000,
     refetchIntervalInBackground: true,
-    staleTime: 10_000,
+    staleTime: 3_000,
     retry: 2,
   });
 }

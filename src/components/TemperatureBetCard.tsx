@@ -1,9 +1,10 @@
 import { useState } from "react";
 import type { TemperatureEvent, TemperatureMarket } from "@/lib/polymarket";
 import type { CityWeather, DateWeather } from "@/hooks/useWeatherData";
-import { SignalBadge } from "./SignalBadge";
+import type { ResolutionStatus } from "@/hooks/useResolutionData";
+import { SignalBadge, type SignalStatus } from "./SignalBadge";
 import { ClockDisplay } from "./ClockDisplay";
-import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, Check, Copy, Eye, BarChart3, Zap } from "lucide-react";
+import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, Check, Copy, Eye, BarChart3, Zap, ShieldCheck } from "lucide-react";
 
 interface TemperatureBetCardProps {
   event: TemperatureEvent;
@@ -17,6 +18,7 @@ interface TemperatureBetCardProps {
   isObservation: boolean;
   betDate?: string;
   onPlaceTrade?: (market: TemperatureMarket) => void;
+  resolutionStatus?: ResolutionStatus;
 }
 
 function parseTempRange(title: string): [number, number] | null {
@@ -31,7 +33,6 @@ function parseTempRange(title: string): [number, number] | null {
 
 function isCorrectAnswer(title: string, highTempF: number | null): boolean {
   if (highTempF === null) return false;
-  // Standard rounding: >=0.5 rounds up, <0.5 rounds down
   const rounded = Math.round(highTempF);
   const range = parseTempRange(title);
   if (!range) return false;
@@ -58,14 +59,37 @@ function getDateWeather(weather: CityWeather | undefined, betDate: string | unde
   return weather.dates[betDate] ?? null;
 }
 
-export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, isMicroSaved, onToggleMicroSave, refNumber, isObservation, betDate, onPlaceTrade }: TemperatureBetCardProps) {
+function deriveSignalStatus(
+  isObservation: boolean,
+  dateWeather: DateWeather | null,
+  weather: CityWeather | undefined,
+  resolutionStatus: ResolutionStatus | undefined,
+): SignalStatus {
+  if (!isObservation) return "forecast";
+
+  if (dateWeather?.isPast) {
+    if (resolutionStatus?.isObserved) return "resolved-observed";
+    return "resolved-observed";
+  }
+
+  if (dateWeather?.isToday) {
+    const coolingConfirmed = dateWeather.observedCoolingConfirmed ?? weather?.observedCoolingConfirmed ?? false;
+    if (coolingConfirmed) return "live-observed-cooling";
+    return "live-heating";
+  }
+
+  return "live";
+}
+
+export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, isMicroSaved, onToggleMicroSave, refNumber, isObservation, betDate, onPlaceTrade, resolutionStatus }: TemperatureBetCardProps) {
   const dateWeather = getDateWeather(weather, betDate);
-  
-  // For observations, use the date-specific data; for forecasts, use forecast data
+
   const highTemp = dateWeather?.highF ?? weather?.highestRecordedF ?? null;
   const pastPeak = dateWeather?.pastPeak ?? weather?.pastPeak ?? false;
   const peakHour = dateWeather?.peakHour ?? weather?.peakHour ?? null;
-  
+  const observedCoolingConfirmed = dateWeather?.observedCoolingConfirmed ?? weather?.observedCoolingConfirmed ?? false;
+  const coolingStartHour = dateWeather?.coolingStartHour ?? weather?.coolingStartHour ?? null;
+
   const [copied, setCopied] = useState(false);
   const refId = `#T${String(refNumber).padStart(3, "0")}`;
 
@@ -75,13 +99,15 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
     setTimeout(() => setCopied(false), 1500);
   };
 
-  const dataLabel = isObservation ? "OBSERVATION" : "FORECAST";
+  const signalStatus = deriveSignalStatus(isObservation, dateWeather, weather, resolutionStatus);
 
-  // Find actual cooling hour from hourly data
+  // Only show resolution temperature after observed cooling is confirmed
+  const showResolutionTemp = isObservation && observedCoolingConfirmed;
+
+  // Cooling hour from hourly data
   const coolingHour = (() => {
-    if (!isObservation || !dateWeather?.hourly) return null;
+    if (!isObservation || !dateWeather?.hourly) return coolingStartHour;
     const hourly = dateWeather.hourly;
-    // Find the hour after which temperature starts consistently dropping
     let peakIdx = 0;
     for (let i = 1; i < hourly.length; i++) {
       if (hourly[i].tempF > hourly[peakIdx].tempF) peakIdx = i;
@@ -89,26 +115,36 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
     return hourly[peakIdx]?.hour ?? null;
   })();
 
-  const isCooling = isObservation && coolingHour !== null && (weather?.currentHour ?? 0) > coolingHour;
+  const isCooling = isObservation && observedCoolingConfirmed;
+  const hoursSinceCooling = coolingHour !== null && weather?.currentHour !== undefined
+    ? Math.max(0, weather.currentHour - coolingHour)
+    : null;
+
+  // Time until market close
+  const msUntilClose = event.endDate ? new Date(event.endDate).getTime() - Date.now() : null;
+  const hoursUntilClose = msUntilClose !== null ? Math.max(0, Math.floor(msUntilClose / 3600000)) : null;
 
   return (
     <div
       className={`relative rounded-md border bg-card p-3 sm:p-4 transition-all hover:border-primary/30 ${
         isCooling
-          ? "border-[hsl(var(--signal-resolved))] shadow-[0_0_12px_hsl(var(--signal-resolved)/0.25)]"
-          : event.isNew
-            ? "border-signal-new/40 shadow-[0_0_15px_hsl(var(--signal-new)/0.1)]"
-            : "border-border"
+          ? "border-emerald-500/60 shadow-[0_0_12px_hsl(142_71%_45%/0.25)]"
+          : signalStatus === "live-heating"
+            ? "border-orange-400/40 shadow-[0_0_10px_hsl(25_95%_53%/0.1)]"
+            : event.isNew
+              ? "border-signal-new/40 shadow-[0_0_15px_hsl(var(--signal-new)/0.1)]"
+              : "border-border"
       }`}
     >
+      {/* Status banner */}
       {isCooling && (
-        <div className="absolute -top-2 right-3 rounded-sm bg-[hsl(var(--signal-resolved))] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-background">
-          Past Peak
+        <div className="absolute -top-2 right-3 rounded-sm bg-emerald-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+          Observed Cooling
         </div>
       )}
 
-      {/* Ref number + data type badge */}
-      <div className="mb-2 flex items-center gap-2">
+      {/* Ref number + Signal badge + date */}
+      <div className="mb-2 flex items-center gap-2 flex-wrap">
         <button
           onClick={copyRef}
           className="flex items-center gap-1 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] sm:text-xs font-mono font-bold text-primary transition-colors hover:bg-primary hover:text-primary-foreground"
@@ -117,22 +153,38 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
           {refId}
           {copied ? <Check className="h-2.5 w-2.5" /> : <Copy className="h-2.5 w-2.5" />}
         </button>
-        <span className={`flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
-          isObservation ? "bg-accent/20 text-accent" : "bg-primary/20 text-primary"
-        }`}>
-          {isObservation ? <Eye className="h-2.5 w-2.5" /> : <BarChart3 className="h-2.5 w-2.5" />}
-          {dataLabel}
-        </span>
+        <SignalBadge status={signalStatus} />
         {betDate && (
           <span className="text-[9px] text-muted-foreground">{betDate}</span>
+        )}
+        {resolutionStatus?.isObserved && (
+          <span className="flex items-center gap-0.5 rounded-sm bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold text-emerald-400">
+            <ShieldCheck className="h-2.5 w-2.5" />
+            Source Verified
+          </span>
+        )}
+      </div>
+
+      {/* Time ribbon */}
+      <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-sm bg-muted/40 px-2 py-1.5 text-[9px] text-muted-foreground">
+        {peakHour !== null && (
+          <span>Peak: <span className="font-semibold text-foreground">{formatHour(peakHour)}</span></span>
+        )}
+        {hoursSinceCooling !== null && hoursSinceCooling > 0 && (
+          <span>Cooling: <span className="font-semibold text-emerald-400">{hoursSinceCooling}h ago</span></span>
+        )}
+        {hoursUntilClose !== null && (
+          <span>Closes: <span className="font-semibold text-foreground">{hoursUntilClose}h</span></span>
+        )}
+        {weather?.currentHour !== undefined && (
+          <span>Local: <span className="font-semibold text-foreground">{formatHour(weather.currentHour)}</span></span>
         )}
       </div>
 
       {/* Header */}
       <div className="mb-2 sm:mb-3 flex items-start justify-between gap-2 sm:gap-3">
         <div className="flex-1 min-w-0">
-          <SignalBadge isNew={event.isNew} active={true} />
-          <h3 className="mt-1.5 sm:mt-2 text-xs sm:text-sm font-medium leading-snug text-foreground line-clamp-2">
+          <h3 className="text-xs sm:text-sm font-medium leading-snug text-foreground line-clamp-2">
             {event.title}
           </h3>
         </div>
@@ -169,11 +221,17 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
         <span className="truncate">{event.location}</span>
       </div>
 
-      {/* Weather data from resolution source — always show if available */}
+      {/* Weather data */}
       {weather && !weather.error && (
         <div className="mb-2 sm:mb-3 rounded-sm border border-border bg-muted/50 p-2 sm:p-3 space-y-2">
           <div className="flex items-center gap-1 mb-1">
             <span className="text-[8px] uppercase tracking-widest text-muted-foreground">Resolution Source Data</span>
+            {showResolutionTemp && (
+              <span className="ml-auto text-[8px] uppercase tracking-widest text-emerald-400 font-bold">Observed</span>
+            )}
+            {!isObservation && (
+              <span className="ml-auto text-[8px] uppercase tracking-widest text-blue-400 font-bold">Forecast</span>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
             <div className="flex flex-col items-center gap-0.5">
@@ -187,44 +245,61 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
             </div>
             <div className="flex flex-col items-center gap-0.5">
               <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">
-                {isObservation ? "Recorded High" : "Forecast High"}
+                {showResolutionTemp ? "Observed High" : isObservation ? "Recorded High (Unconfirmed)" : "Forecast High"}
               </span>
               <div className="flex items-center gap-0.5">
                 <TrendingUp className="h-3 w-3 text-destructive" />
-                <span className="text-[10px] sm:text-xs font-bold text-destructive tabular-nums">
+                <span className={`text-[10px] sm:text-xs font-bold tabular-nums ${showResolutionTemp ? "text-emerald-400" : "text-destructive"}`}>
                   {formatDual(highTemp)}
                 </span>
+                {resolutionStatus?.isObserved && resolutionStatus.observedHighF !== null && (
+                  <span className="ml-1 text-[9px] text-emerald-400 font-bold flex items-center gap-0.5">
+                    <ShieldCheck className="h-2.5 w-2.5" />
+                    {resolutionStatus.observedHighF.toFixed(1)}°F
+                  </span>
+                )}
               </div>
             </div>
           </div>
-          {isObservation && highTemp !== null && (
+          {showResolutionTemp && highTemp !== null && (
             <div className="text-center text-[9px] text-muted-foreground">
               Settles at: <span className="font-bold text-foreground">{Math.round(highTemp)}°F / {fToC(Math.round(highTemp)).toFixed(1)}°C</span>
               <span className="text-[8px] ml-1">(≥0.5 rounds up)</span>
             </div>
           )}
-          {/* Cooling indicator from actual hourly data — observations only */}
+          {!showResolutionTemp && isObservation && (
+            <div className="text-center text-[9px] text-orange-400">
+              Waiting for observed cooling confirmation before resolving...
+            </div>
+          )}
+          {/* Cooling indicator */}
           {isObservation && coolingHour !== null && (
             <div className="flex items-center justify-center gap-1.5 text-[10px] sm:text-xs">
               <TrendingDown className="h-3 w-3 text-muted-foreground" />
               <span className="text-muted-foreground">
                 Temp drops after <span className="font-semibold text-foreground">{formatHour(coolingHour)}</span> local
-                {isCooling && <span className="ml-1 text-[hsl(var(--signal-resolved))] font-bold">· COOLING</span>}
+                {isCooling && <span className="ml-1 text-emerald-400 font-bold">· OBSERVED COOLING</span>}
+                {!isCooling && pastPeak && <span className="ml-1 text-orange-400">· Awaiting confirmation</span>}
               </span>
             </div>
           )}
-          {/* Hourly breakdown for observations */}
-          {isObservation && dateWeather?.hourly && (
-            <details className="text-[9px]">
+          {/* Hourly breakdown with OBS/FCST tags */}
+          {dateWeather?.hourly && (
+            <details className="text-[9px]" open={isObservation && dateWeather.hourly.length > 0}>
               <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Hourly breakdown</summary>
               <div className="mt-1 grid grid-cols-6 sm:grid-cols-8 gap-0.5">
                 {dateWeather.hourly.map(h => (
                   <div key={h.hour} className={`text-center rounded-sm px-0.5 py-0.5 ${
-                    h.isRecorded ? "bg-muted" : "bg-muted/30"
-                  } ${h.hour === coolingHour ? "ring-1 ring-[hsl(var(--signal-resolved))]" : ""}`}>
+                    h.isRecorded
+                      ? "bg-muted border border-transparent"
+                      : "bg-muted/20 border border-dashed border-border"
+                  } ${h.hour === coolingHour ? "ring-1 ring-emerald-500" : ""}`}>
                     <div className="text-[8px] text-muted-foreground">{formatHour(h.hour)}</div>
                     <div className="text-[9px] font-bold text-foreground tabular-nums">{h.tempF.toFixed(1)}°F</div>
                     <div className="text-[8px] text-muted-foreground tabular-nums">{h.tempC.toFixed(1)}°C</div>
+                    <div className={`text-[7px] font-bold mt-0.5 ${h.isRecorded ? "text-emerald-400" : "text-blue-400"}`}>
+                      {h.isRecorded ? "OBS" : "FCST"}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -240,7 +315,7 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
         <ClockDisplay timezone="UTC" label="PM" variant="accent" />
       </div>
 
-      {/* Markets / Odds — YES & NO side by side */}
+      {/* Markets / Odds */}
       <div className="mb-2 sm:mb-3 space-y-1">
         <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-1 sm:gap-x-2 items-center text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground px-1.5 sm:px-2">
           <span>Range</span>
@@ -253,7 +328,7 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
           {event.markets
             .sort((a, b) => b.yesPrice - a.yesPrice)
             .map((m) => {
-              const correct = isObservation && isCorrectAnswer(m.groupItemTitle, highTemp);
+              const correct = showResolutionTemp && isCorrectAnswer(m.groupItemTitle, highTemp);
               const yesProfitPct = m.yesPrice > 0 ? ((1 - m.yesPrice) / m.yesPrice) * 100 : 0;
               const noProfitPct = m.noPrice > 0 ? ((1 - m.noPrice) / m.noPrice) * 100 : 0;
 
@@ -262,34 +337,25 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
                   key={m.id}
                   className={`grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-1 sm:gap-x-2 items-center rounded-sm px-1.5 sm:px-2 py-1 sm:py-1.5 transition-colors ${
                     correct
-                      ? "bg-[hsl(var(--signal-resolved)/0.15)] border border-[hsl(var(--signal-resolved)/0.5)]"
+                      ? "bg-emerald-500/15 border border-emerald-500/50"
                       : "bg-muted/30"
                   }`}
                 >
-                  {/* Range label */}
                   <div className="flex items-center gap-1 min-w-0">
-                    {correct && <span className="text-[9px] font-bold text-[hsl(var(--signal-resolved))]">✓</span>}
-                    <span className={`text-[10px] sm:text-xs truncate ${correct ? "font-semibold text-[hsl(var(--signal-resolved))]" : "text-foreground"}`}>
+                    {correct && <span className="text-[9px] font-bold text-emerald-400">✓</span>}
+                    <span className={`text-[10px] sm:text-xs truncate ${correct ? "font-semibold text-emerald-400" : "text-foreground"}`}>
                       {m.groupItemTitle}
                     </span>
                   </div>
-
-                  {/* YES price */}
-                  <span className={`w-14 sm:w-16 text-center text-[10px] sm:text-xs font-semibold tabular-nums ${correct ? "text-[hsl(var(--signal-resolved))]" : "text-[hsl(var(--signal-resolved))]"}`}>
+                  <span className={`w-14 sm:w-16 text-center text-[10px] sm:text-xs font-semibold tabular-nums ${correct ? "text-emerald-400" : "text-[hsl(var(--signal-resolved))]"}`}>
                     {(m.yesPrice * 100).toFixed(1)}¢
                   </span>
-
-                  {/* YES profit % */}
                   <span className="w-10 sm:w-12 text-center text-[10px] sm:text-xs tabular-nums text-[hsl(var(--signal-resolved))]">
                     +{yesProfitPct.toFixed(0)}%
                   </span>
-
-                  {/* NO price */}
                   <span className="w-14 sm:w-16 text-center text-[10px] sm:text-xs font-semibold tabular-nums text-destructive">
                     {(m.noPrice * 100).toFixed(1)}¢
                   </span>
-
-                  {/* NO profit % */}
                   <span className="w-10 sm:w-12 text-center text-[10px] sm:text-xs tabular-nums text-destructive">
                     +{noProfitPct.toFixed(0)}%
                   </span>
@@ -297,7 +363,6 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
               );
             })}
         </div>
-        {/* Trade button row */}
         {onPlaceTrade && event.markets.length > 0 && (
           <div className="flex flex-wrap gap-1 pt-1">
             {event.markets

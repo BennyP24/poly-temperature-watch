@@ -68,6 +68,9 @@ const CITY_COORDS: Record<string, { lat: number; lon: number; tz: string }> = {
   ankara: { lat: 39.93, lon: 32.86, tz: "Europe/Istanbul" },
   lucknow: { lat: 26.85, lon: 80.95, tz: "Asia/Kolkata" },
   "tel aviv": { lat: 32.08, lon: 34.78, tz: "Asia/Jerusalem" },
+  "ben gurion": { lat: 32.01, lon: 34.87, tz: "Asia/Jerusalem" },
+  jerusalem: { lat: 31.77, lon: 35.22, tz: "Asia/Jerusalem" },
+  haifa: { lat: 32.79, lon: 34.99, tz: "Asia/Jerusalem" },
   wellington: { lat: -41.29, lon: 174.78, tz: "Pacific/Auckland" },
   lima: { lat: -12.05, lon: -77.04, tz: "America/Lima" },
   bogota: { lat: 4.71, lon: -74.07, tz: "America/Bogota" },
@@ -83,6 +86,8 @@ const CITY_ALIASES: Record<string, string> = {
   "washington d.c": "washington",
   "washington d.c.": "washington",
   "são paulo": "sao paulo",
+  "ben-gurion": "ben gurion",
+  "ben gurion airport": "ben gurion",
 };
 
 function normalizeCityKey(value: string): string {
@@ -183,6 +188,33 @@ Deno.serve(async (req) => {
             isRecorded: isPast || (isToday && h.hour <= currentHour),
           }));
 
+          // Observed cooling: requires 2+ consecutive declining recorded hours after the recorded peak
+          let observedCoolingConfirmed = false;
+          let coolingStartHour: number | null = null;
+
+          if (isPast) {
+            observedCoolingConfirmed = true;
+          } else if (isToday && recordedHours.length >= 3) {
+            const recPeak = recordedHours.reduce((max, h) => h.tempF > max.tempF ? h : max, recordedHours[0]);
+            const afterPeak = recordedHours
+              .filter(h => h.hour > recPeak.hour)
+              .sort((a, b) => a.hour - b.hour);
+
+            let consecutiveDeclines = 0;
+            for (let i = 1; i < afterPeak.length; i++) {
+              if (afterPeak[i].tempF < afterPeak[i - 1].tempF) {
+                consecutiveDeclines++;
+                if (consecutiveDeclines >= 2) {
+                  observedCoolingConfirmed = true;
+                  coolingStartHour = afterPeak[i - 2]?.hour ?? afterPeak[i - 1].hour;
+                  break;
+                }
+              } else {
+                consecutiveDeclines = 0;
+              }
+            }
+          }
+
           dateData[dateStr] = {
             highF: highF !== null ? Math.round(highF * 1000) / 1000 : null,
             highC: highF !== null ? Math.round(fToC(highF) * 1000) / 1000 : null,
@@ -193,6 +225,8 @@ Deno.serve(async (req) => {
             isToday,
             isPast,
             isFuture,
+            observedCoolingConfirmed,
+            coolingStartHour,
             hourly: hourlyArr,
           };
         }
@@ -211,8 +245,9 @@ Deno.serve(async (req) => {
           peakHour: todayData?.peakHour ?? null,
           currentHour,
           pastPeak: todayData?.pastPeak ?? false,
+          observedCoolingConfirmed: todayData?.observedCoolingConfirmed ?? false,
+          coolingStartHour: todayData?.coolingStartHour ?? null,
           timezone: coords.tz,
-          // Full date-indexed data for multi-day views
           dates: dateData,
         };
       } catch (e) {
