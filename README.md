@@ -1,135 +1,78 @@
-<<<<<<< HEAD
 # Polymarket Temperature Bet Tracker
 
-A real-time dashboard for tracking and paper-trading Polymarket daily temperature prediction markets. Combines live weather data with market prices to identify trading opportunities based on observed temperature cooling patterns.
+Track daily temperature prediction markets on Polymarket and paper-trade them using live weather data from the same resolution sources the bets settle on.
 
-## Features
+## What This App Does
 
-- **Two dedicated accounts**:
-  - **Normal Temp** (`/temp`) -- Paper trade temperature bets after observed cooling is confirmed from the resolution source
-  - **Micro-Trades** (`/micro`) -- Auto-buy YES and NO positions at 3 cents or less when new bets go live at 00:00 UTC
-- **Real-time data polling** -- Polymarket prices every 5s, weather every 30s, resolution source every 60s
-- **Observed cooling detection** -- Only marks a bet as ready to trade after 2+ consecutive hours of declining recorded temperatures past the daily peak
-- **Resolution source verification** -- Scrapes Weather Underground and other resolution websites to confirm "Observed" vs "Forecast" status
-- **Real-time BID tracking** -- Dedicated fast polling for markets you hold positions in
-- **Midnight boost mode** -- Aggressive 2s polling around 00:00 UTC to catch new bets the instant they appear
-- **Session export/import** -- Download and restore your paper trading sessions as JSON
-- **Signal indicators** -- Color-coded badges: Forecast (blue), Live Heating (orange), Observed Cooling (green), Resolved (gray)
-- **Hourly OBS/FCST tags** -- Every hourly temperature reading is labeled as Observed or Forecast
+Polymarket lists daily bets on the highest temperature in cities around the world (e.g., "Highest temperature in Ben Gurion, Israel on March 16"). Each bet has multiple options for temperature ranges, and each option has a YES/NO price.
 
-## Tech Stack
+This app:
 
-- **Frontend**: React 18, TypeScript, Vite
-- **UI**: Tailwind CSS, shadcn/ui (Radix), Lucide icons
-- **Data**: TanStack React Query
-- **Backend**: Supabase (Postgres + Edge Functions)
-- **APIs**: Polymarket Gamma API, Open-Meteo, resolution source websites
+1. **Pulls all active temperature bets** from Polymarket in real time (every 5 seconds).
+2. **Fetches live weather data** for each city from Open-Meteo (every 30 seconds), tracking hourly temperatures throughout the day.
+3. **Detects when the daily peak has passed** by watching for observed cooling -- 2+ consecutive hours of declining recorded temperatures after the peak. This tells you the high for the day is likely locked in.
+4. **Cross-checks the resolution website** (Weather Underground, etc.) to confirm whether the reading is "Observed" or still a "Forecast."
+5. **Lets you paper-trade** with a virtual $1,000 balance, tracked in a database.
 
-## Getting Started
+## Two Accounts
 
-### Prerequisites
+The app has two separate trading modes, each on its own page:
 
-- Node.js v18+ and npm
+### Normal Temp (`/temp`)
 
-### Setup
-=======
-**Use your preferred IDE**
+For manual trading after the temperature has been confirmed.
 
-If you want to work locally using your own IDE, you can clone this repo and push changes.
+- **Ready to Trade** tab -- Only shows bets where observed cooling has been confirmed (the high is locked in). This is when you know the correct answer and can trade accordingly.
+- **Monitoring** tab -- Shows bets still in the forecast or heating phase (not ready yet).
+- **Saved** tab -- Bets you've bookmarked.
+- **Paper Trades** tab -- Your open and closed trades with live BID prices and P&L.
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+### Micro-Trades (`/micro`)
 
-Follow these steps:
->>>>>>> 71ce8f6fbc18f645123df3f0141b76f8f5b385f2
+For automated fast-reaction trading on new bets.
+
+- At **00:00 UTC** every day, Polymarket lists new temperature bets for the next day. When auto-trade is enabled, the app polls every 2 seconds around midnight and automatically buys every YES and NO option priced at 3 cents or less ($25 per position), as long as the bet has fewer than 9 options.
+- **Active Positions** tab -- Shows the bet cards for events you hold positions in.
+- **Upcoming** tab -- Future bets arriving in the next 48 hours.
+- **History** tab -- Closed trades, auto-trade toggle, and midnight countdown.
+
+## How to Run
+
+You need **Node.js v18+** installed.
 
 ```sh
-# Clone the repo
 git clone <repo-url>
 cd polymarket-bet-watch
-
-# Install dependencies
 npm install
-
-# Create .env with your Supabase credentials
-# (already included if you cloned the full project)
-# VITE_SUPABASE_URL=https://your-project.supabase.co
-# VITE_SUPABASE_PUBLISHABLE_KEY=your-anon-key
-
-# Start the dev server
 npm run dev
 ```
 
-The app runs at `http://localhost:8080`.
+Opens at `http://localhost:8080`. The `.env` file with Supabase credentials is already included.
 
-### Commands
+### Other Commands
 
-| Command | Description |
+| Command | What it does |
 |---------|-------------|
-| `npm run dev` | Start development server |
-| `npm run build` | Production build |
-| `npm run preview` | Preview production build |
-| `npm run test` | Run tests (Vitest) |
-| `npm run lint` | Run ESLint |
+| `npm run build` | Production build (output in `dist/`) |
+| `npm run preview` | Preview the production build locally |
+| `npm run test` | Run tests |
+| `npm run lint` | Check code with ESLint |
 
-## Architecture
+## Tech Stack
 
-```
-src/
-├── pages/
-│   ├── Landing.tsx          # Account selector (/ route)
-│   ├── TempAccount.tsx      # Normal temp trading (/temp)
-│   ├── MicroAccount.tsx     # Micro-trades (/micro)
-│   └── NotFound.tsx
-├── hooks/
-│   ├── usePolymarketData.ts # Polymarket event polling (5s)
-│   ├── useWeatherData.ts    # Open-Meteo weather polling (30s)
-│   ├── useResolutionData.ts # Resolution source scraping (60s)
-│   ├── useMarketPrices.ts   # Real-time BID for open positions (5s)
-│   ├── useMicroAutoTrade.ts # Auto-buy YES/NO ≤3¢, $25 each
-│   ├── useMidnightBoost.ts  # 00:00 UTC detection, 2s boost polling
-│   ├── usePaperTrading.ts   # Paper trade state (Supabase)
-│   └── useSavedBets.ts      # Bookmarked bets (localStorage)
-├── components/
-│   ├── TemperatureBetCard.tsx  # Main bet card with signals
-│   ├── SignalBadge.tsx         # Status indicators
-│   ├── PaperTradesSummary.tsx  # Paper trades with real-time BID
-│   ├── MicroTradesSummary.tsx  # Micro trades with countdown
-│   ├── PortfolioHeader.tsx     # Balance, P&L, record
-│   ├── StatusBar.tsx           # Active bets, refresh time
-│   └── ClockDisplay.tsx        # Live timezone clocks
-├── lib/
-│   └── polymarket.ts        # Gamma API fetching & event parsing
-└── integrations/
-    └── supabase/             # Supabase client & DB types
+- React 18 + TypeScript + Vite
+- Tailwind CSS + shadcn/ui
+- TanStack React Query (data polling)
+- Supabase (database + edge functions)
+- Polymarket Gamma API
+- Open-Meteo weather API
 
-supabase/functions/
-├── polymarket-proxy/    # CORS proxy to Gamma API
-├── weather-data/        # Open-Meteo with observed cooling logic
-└── resolution-proxy/    # Resolution website scraping
-```
+## How It Works Under the Hood
 
-<<<<<<< HEAD
-## Supabase Edge Functions
+The frontend polls three Supabase Edge Functions:
 
-The app relies on three Supabase Edge Functions:
+- **polymarket-proxy** -- Forwards requests to the Polymarket Gamma API (avoids CORS issues).
+- **weather-data** -- Fetches hourly temperatures from Open-Meteo for each city. Computes `observedCoolingConfirmed` (true when 2+ consecutive recorded hours show declining temps after the peak).
+- **resolution-proxy** -- Fetches the actual resolution website (e.g., Weather Underground) for a bet and scrapes whether the data is marked as "Observed."
 
-- **polymarket-proxy** -- Generic CORS proxy to the Polymarket Gamma API
-- **weather-data** -- Fetches Open-Meteo weather data with observed cooling detection (`observedCoolingConfirmed`)
-- **resolution-proxy** -- Scrapes the bet's resolution source URL (Weather Underground, etc.) to extract observed high temperature and confirmation status
-
-## Deployment
-
-Build for production:
-
-```sh
-npm run build
-```
-
-Deploy the `dist/` folder to any static hosting provider (Vercel, Netlify, Cloudflare Pages, etc.). Make sure the Supabase Edge Functions are deployed to your Supabase project.
-=======
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
->>>>>>> 71ce8f6fbc18f645123df3f0141b76f8f5b385f2
+On top of that, a dedicated `useMarketPrices` hook polls the current YES/NO prices for any markets you hold positions in every 5 seconds, so the BID and live P&L stay up to date.
