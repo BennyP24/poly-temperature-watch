@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Polymarket Temperature Bet Tracker
 
 A real-time dashboard for tracking and paper-trading Polymarket daily temperature prediction markets. Combines live weather data with market prices to identify trading opportunities based on observed temperature cooling patterns.
@@ -31,6 +32,15 @@ A real-time dashboard for tracking and paper-trading Polymarket daily temperatur
 - Node.js v18+ and npm
 
 ### Setup
+=======
+**Use your preferred IDE**
+
+If you want to work locally using your own IDE, you can clone this repo and push changes.
+
+The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+
+Follow these steps:
+>>>>>>> 71ce8f6fbc18f645123df3f0141b76f8f5b385f2
 
 ```sh
 # Clone the repo
@@ -98,6 +108,7 @@ supabase/functions/
 └── resolution-proxy/    # Resolution website scraping
 ```
 
+<<<<<<< HEAD
 ## Supabase Edge Functions
 
 The app relies on three Supabase Edge Functions:
@@ -115,3 +126,10 @@ npm run build
 ```
 
 Deploy the `dist/` folder to any static hosting provider (Vercel, Netlify, Cloudflare Pages, etc.). Make sure the Supabase Edge Functions are deployed to your Supabase project.
+=======
+- Vite
+- TypeScript
+- React
+- shadcn-ui
+- Tailwind CSS
+>>>>>>> 71ce8f6fbc18f645123df3f0141b76f8f5b385f2
