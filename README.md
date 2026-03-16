@@ -1,73 +1,117 @@
-# Welcome to your Lovable project
+# Polymarket Temperature Bet Tracker
 
-## Project info
+A real-time dashboard for tracking and paper-trading Polymarket daily temperature prediction markets. Combines live weather data with market prices to identify trading opportunities based on observed temperature cooling patterns.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Features
 
-## How can I edit this code?
+- **Two dedicated accounts**:
+  - **Normal Temp** (`/temp`) -- Paper trade temperature bets after observed cooling is confirmed from the resolution source
+  - **Micro-Trades** (`/micro`) -- Auto-buy YES and NO positions at 3 cents or less when new bets go live at 00:00 UTC
+- **Real-time data polling** -- Polymarket prices every 5s, weather every 30s, resolution source every 60s
+- **Observed cooling detection** -- Only marks a bet as ready to trade after 2+ consecutive hours of declining recorded temperatures past the daily peak
+- **Resolution source verification** -- Scrapes Weather Underground and other resolution websites to confirm "Observed" vs "Forecast" status
+- **Real-time BID tracking** -- Dedicated fast polling for markets you hold positions in
+- **Midnight boost mode** -- Aggressive 2s polling around 00:00 UTC to catch new bets the instant they appear
+- **Session export/import** -- Download and restore your paper trading sessions as JSON
+- **Signal indicators** -- Color-coded badges: Forecast (blue), Live Heating (orange), Observed Cooling (green), Resolved (gray)
+- **Hourly OBS/FCST tags** -- Every hourly temperature reading is labeled as Observed or Forecast
 
-There are several ways of editing your application.
+## Tech Stack
 
-**Use Lovable**
+- **Frontend**: React 18, TypeScript, Vite
+- **UI**: Tailwind CSS, shadcn/ui (Radix), Lucide icons
+- **Data**: TanStack React Query
+- **Backend**: Supabase (Postgres + Edge Functions)
+- **APIs**: Polymarket Gamma API, Open-Meteo, resolution source websites
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Getting Started
 
-Changes made via Lovable will be committed automatically to this repo.
+### Prerequisites
 
-**Use your preferred IDE**
+- Node.js v18+ and npm
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+### Setup
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+# Clone the repo
+git clone <repo-url>
+cd polymarket-bet-watch
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+# Install dependencies
+npm install
 
-# Step 3: Install the necessary dependencies.
-npm i
+# Create .env with your Supabase credentials
+# (already included if you cloned the full project)
+# VITE_SUPABASE_URL=https://your-project.supabase.co
+# VITE_SUPABASE_PUBLISHABLE_KEY=your-anon-key
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Start the dev server
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+The app runs at `http://localhost:8080`.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+### Commands
 
-**Use GitHub Codespaces**
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start development server |
+| `npm run build` | Production build |
+| `npm run preview` | Preview production build |
+| `npm run test` | Run tests (Vitest) |
+| `npm run lint` | Run ESLint |
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Architecture
 
-## What technologies are used for this project?
+```
+src/
+├── pages/
+│   ├── Landing.tsx          # Account selector (/ route)
+│   ├── TempAccount.tsx      # Normal temp trading (/temp)
+│   ├── MicroAccount.tsx     # Micro-trades (/micro)
+│   └── NotFound.tsx
+├── hooks/
+│   ├── usePolymarketData.ts # Polymarket event polling (5s)
+│   ├── useWeatherData.ts    # Open-Meteo weather polling (30s)
+│   ├── useResolutionData.ts # Resolution source scraping (60s)
+│   ├── useMarketPrices.ts   # Real-time BID for open positions (5s)
+│   ├── useMicroAutoTrade.ts # Auto-buy YES/NO ≤3¢, $25 each
+│   ├── useMidnightBoost.ts  # 00:00 UTC detection, 2s boost polling
+│   ├── usePaperTrading.ts   # Paper trade state (Supabase)
+│   └── useSavedBets.ts      # Bookmarked bets (localStorage)
+├── components/
+│   ├── TemperatureBetCard.tsx  # Main bet card with signals
+│   ├── SignalBadge.tsx         # Status indicators
+│   ├── PaperTradesSummary.tsx  # Paper trades with real-time BID
+│   ├── MicroTradesSummary.tsx  # Micro trades with countdown
+│   ├── PortfolioHeader.tsx     # Balance, P&L, record
+│   ├── StatusBar.tsx           # Active bets, refresh time
+│   └── ClockDisplay.tsx        # Live timezone clocks
+├── lib/
+│   └── polymarket.ts        # Gamma API fetching & event parsing
+└── integrations/
+    └── supabase/             # Supabase client & DB types
 
-This project is built with:
+supabase/functions/
+├── polymarket-proxy/    # CORS proxy to Gamma API
+├── weather-data/        # Open-Meteo with observed cooling logic
+└── resolution-proxy/    # Resolution website scraping
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Supabase Edge Functions
 
-## How can I deploy this project?
+The app relies on three Supabase Edge Functions:
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+- **polymarket-proxy** -- Generic CORS proxy to the Polymarket Gamma API
+- **weather-data** -- Fetches Open-Meteo weather data with observed cooling detection (`observedCoolingConfirmed`)
+- **resolution-proxy** -- Scrapes the bet's resolution source URL (Weather Underground, etc.) to extract observed high temperature and confirmation status
 
-## Can I connect a custom domain to my Lovable project?
+## Deployment
 
-Yes, you can!
+Build for production:
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+```sh
+npm run build
+```
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Deploy the `dist/` folder to any static hosting provider (Vercel, Netlify, Cloudflare Pages, etc.). Make sure the Supabase Edge Functions are deployed to your Supabase project.
