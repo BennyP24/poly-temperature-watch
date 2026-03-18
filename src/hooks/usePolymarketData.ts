@@ -9,5 +9,6 @@ export function usePolymarketData(overrideIntervalMs?: number) {
     refetchIntervalInBackground: true,
     staleTime: 3_000,
     retry: 2,
+    placeholderData: (prev) => prev,
   });
 }

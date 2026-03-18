@@ -138,19 +138,9 @@ function isPriorityCity(location: string): number {
   return PRIORITY_CITIES.length + 1;
 }
 
-/**
- * Check if this is a DAILY temperature bet (not weekly, monthly, etc.)
- */
-function isDailyTemperatureBet(title: string): boolean {
+function isTemperatureBet(title: string): boolean {
   const lower = title.toLowerCase();
-  // Must mention temperature
-  if (!lower.includes("temperature") && !lower.includes("°f") && !lower.includes("°c")) return false;
-  // Must mention a specific date pattern like "March 6" or "on March" or day-specific
-  if (/\b(march|april|may|june|july|august|september|october|november|december|january|february)\s+\d{1,2}\b/i.test(title)) return true;
-  if (/\bon\s+(march|april|may|june|july|august|september|october|november|december|january|february)/i.test(title)) return true;
-  // Fallback: has "daily" or "highest" or specific date
-  if (lower.includes("daily") || lower.includes("highest")) return true;
-  return false;
+  return lower.includes("temperature") || lower.includes("°f") || lower.includes("°c") || lower.includes("highest") || lower.includes("temp ");
 }
 
 export interface TemperatureEvent {
@@ -187,7 +177,7 @@ export interface TemperatureMarket {
 
 export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
   const response = await fetch(
-    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/polymarket-proxy?endpoint=events&params=${encodeURIComponent("active=true&closed=false&limit=100&order=createdAt&ascending=false&tag_slug=weather")}`,
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/polymarket-proxy?endpoint=events&params=${encodeURIComponent("active=true&closed=false&limit=200&order=createdAt&ascending=false&tag_slug=weather")}`,
     {
       headers: {
         "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
@@ -206,8 +196,7 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
     .filter((e: any) => {
       if (e.closed) return false;
       const title = e.title || "";
-      // Only daily temperature bets
-      return isDailyTemperatureBet(title);
+      return isTemperatureBet(title);
     })
     .map((event: any) => {
       const title = event.title || "";

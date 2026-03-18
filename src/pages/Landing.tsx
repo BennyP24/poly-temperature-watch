@@ -90,7 +90,7 @@ const Landing = () => {
               </div>
             </div>
             <p className="mb-4 text-xs text-muted-foreground leading-relaxed">
-              Auto-buy YES and NO at 3 cents or less when new bets go live at 00:00 UTC.
+              Auto-buy YES at 3 cents or less when brand-new bets go live at 00:00 UTC.
               Fast reaction with midnight boost mode.
             </p>
             <div className="mb-4 grid grid-cols-3 gap-2">

@@ -59,5 +59,6 @@ export function useWeatherData(cities: string[]) {
     refetchInterval: 30_000,
     staleTime: 15_000,
     enabled: cities.length > 0,
+    placeholderData: (prev) => prev,
   });
 }

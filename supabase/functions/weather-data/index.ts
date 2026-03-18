@@ -188,13 +188,13 @@ Deno.serve(async (req) => {
             isRecorded: isPast || (isToday && h.hour <= currentHour),
           }));
 
-          // Observed cooling: requires 2+ consecutive declining recorded hours after the recorded peak
+          // Observed cooling: requires 3 consecutive declining recorded hours after the recorded peak
           let observedCoolingConfirmed = false;
           let coolingStartHour: number | null = null;
 
           if (isPast) {
             observedCoolingConfirmed = true;
-          } else if (isToday && recordedHours.length >= 3) {
+          } else if (isToday && recordedHours.length >= 4) {
             const recPeak = recordedHours.reduce((max, h) => h.tempF > max.tempF ? h : max, recordedHours[0]);
             const afterPeak = recordedHours
               .filter(h => h.hour > recPeak.hour)
@@ -204,9 +204,9 @@ Deno.serve(async (req) => {
             for (let i = 1; i < afterPeak.length; i++) {
               if (afterPeak[i].tempF < afterPeak[i - 1].tempF) {
                 consecutiveDeclines++;
-                if (consecutiveDeclines >= 2) {
+                if (consecutiveDeclines >= 3) {
                   observedCoolingConfirmed = true;
-                  coolingStartHour = afterPeak[i - 2]?.hour ?? afterPeak[i - 1].hour;
+                  coolingStartHour = afterPeak[i - consecutiveDeclines]?.hour ?? afterPeak[i - 1].hour;
                   break;
                 }
               } else {

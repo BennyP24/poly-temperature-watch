@@ -19,6 +19,7 @@ interface TemperatureBetCardProps {
   betDate?: string;
   onPlaceTrade?: (market: TemperatureMarket) => void;
   resolutionStatus?: ResolutionStatus;
+  hideClocks?: boolean;
 }
 
 function parseTempRange(title: string): [number, number] | null {
@@ -81,7 +82,7 @@ function deriveSignalStatus(
   return "live";
 }
 
-export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, isMicroSaved, onToggleMicroSave, refNumber, isObservation, betDate, onPlaceTrade, resolutionStatus }: TemperatureBetCardProps) {
+export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, isMicroSaved, onToggleMicroSave, refNumber, isObservation, betDate, onPlaceTrade, resolutionStatus, hideClocks }: TemperatureBetCardProps) {
   const dateWeather = getDateWeather(weather, betDate);
 
   const highTemp = dateWeather?.highF ?? weather?.highestRecordedF ?? null;
@@ -287,7 +288,7 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
           {dateWeather?.hourly && (
             <details className="text-[9px]" open={isObservation && dateWeather.hourly.length > 0}>
               <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Hourly breakdown</summary>
-              <div className="mt-1 grid grid-cols-6 sm:grid-cols-8 gap-0.5">
+              <div className="mt-1 grid grid-cols-4 sm:grid-cols-8 gap-0.5">
                 {dateWeather.hourly.map(h => (
                   <div key={h.hour} className={`text-center rounded-sm px-0.5 py-0.5 ${
                     h.isRecorded
@@ -309,15 +310,17 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
       )}
 
       {/* Clocks */}
-      <div className="mb-2 sm:mb-3 grid grid-cols-3 gap-1 sm:gap-2 rounded-sm border border-border bg-muted/50 p-2 sm:p-3">
-        <ClockDisplay timezone={userTimezone} label="You" variant="default" />
-        <ClockDisplay timezone={event.timezone} label={event.location} variant="primary" />
-        <ClockDisplay timezone="UTC" label="PM" variant="accent" />
-      </div>
+      {!hideClocks && (
+        <div className="mb-2 sm:mb-3 grid grid-cols-3 gap-1 sm:gap-2 rounded-sm border border-border bg-muted/50 p-2 sm:p-3">
+          <ClockDisplay timezone={userTimezone} label="You" variant="default" />
+          <ClockDisplay timezone={event.timezone} label={event.location} variant="primary" />
+          <ClockDisplay timezone="UTC" label="PM" variant="accent" />
+        </div>
+      )}
 
       {/* Markets / Odds */}
-      <div className="mb-2 sm:mb-3 space-y-1">
-        <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-1 sm:gap-x-2 items-center text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground px-1.5 sm:px-2">
+      <div className="mb-2 sm:mb-3 space-y-1 overflow-x-auto">
+        <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-1 sm:gap-x-2 items-center text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground px-1.5 sm:px-2 min-w-[340px]">
           <span>Range</span>
           <span className="text-center w-14 sm:w-16">YES</span>
           <span className="text-center w-10 sm:w-12">+%</span>
@@ -335,9 +338,9 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
               return (
                 <div
                   key={m.id}
-                  className={`grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-1 sm:gap-x-2 items-center rounded-sm px-1.5 sm:px-2 py-1 sm:py-1.5 transition-colors ${
+                  className={`grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-1 sm:gap-x-2 items-center rounded-sm px-1.5 sm:px-2 py-1 sm:py-1.5 transition-colors min-w-[340px] ${
                     correct
-                      ? "bg-emerald-500/15 border border-emerald-500/50"
+                      ? "bg-emerald-500/20 border-2 border-emerald-500/70 shadow-[0_0_8px_hsl(142_71%_45%/0.3)]"
                       : "bg-muted/30"
                   }`}
                 >

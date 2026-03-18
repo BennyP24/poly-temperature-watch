@@ -94,25 +94,18 @@ export function usePaperTrading(prefix = "paper") {
     if (!deviceId) { setLoading(false); return; }
     setLoading(true);
     try {
-      const { data: account, error: upsertError } = await supabase
+      // Try upsert first (creates if new)
+      await supabase
         .from("paper_accounts")
-        .upsert({ device_id: deviceId, balance: 1000 }, { onConflict: "device_id", ignoreDuplicates: true })
-        .select().single();
+        .upsert({ device_id: deviceId, balance: 1000 }, { onConflict: "device_id", ignoreDuplicates: true });
 
-      if (upsertError) {
-        const { data: existing } = await supabase
-          .from("paper_accounts").select("*").eq("device_id", deviceId).limit(1).maybeSingle();
-        if (existing) {
-          setAccountId(existing.id);
-          safeLocalStorageSet(`${prefix}-account-id`, existing.id);
-          setBalance(Number(existing.balance));
-        }
-        return;
-      }
-      if (account) {
-        setAccountId(account.id);
-        safeLocalStorageSet(`${prefix}-account-id`, account.id);
-        setBalance(Number(account.balance));
+      // Always fetch the current account to get the real balance
+      const { data: existing } = await supabase
+        .from("paper_accounts").select("*").eq("device_id", deviceId).limit(1).maybeSingle();
+      if (existing) {
+        setAccountId(existing.id);
+        safeLocalStorageSet(`${prefix}-account-id`, existing.id);
+        setBalance(Number(existing.balance));
       }
     } finally { setLoading(false); }
   }, [deviceId, prefix]);
@@ -136,6 +129,18 @@ export function usePaperTrading(prefix = "paper") {
 
   useEffect(() => { loadAccount(); }, [loadAccount]);
   useEffect(() => { loadTrades(); }, [loadTrades]);
+
+  // Periodic sync to keep local state aligned with Supabase
+  useEffect(() => {
+    if (!accountId) return;
+    const interval = setInterval(async () => {
+      const { data: acct } = await supabase
+        .from("paper_accounts").select("balance").eq("id", accountId).maybeSingle();
+      if (acct) setBalance(Number(acct.balance));
+      await loadTrades();
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [accountId, loadTrades]);
 
   const placeTrade = useCallback(
     async (params: {

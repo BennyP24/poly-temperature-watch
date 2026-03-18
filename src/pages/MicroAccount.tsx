@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import { usePolymarketData } from "@/hooks/usePolymarketData";
 import { useWeatherData } from "@/hooks/useWeatherData";
@@ -35,6 +35,8 @@ const MicroAccount = () => {
   const micro = usePaperTrading("micro");
   const { toggle: toggleMicroSave, isSaved: isMicroSaved } = useSavedBets("micro-saved-bets");
   const [activeTab, setActiveTab] = useState<TabKey>("active");
+  const autoSettleRef = useRef<Set<string>>(new Set());
+
   const [microAutoEnabled, setMicroAutoEnabled] = useState(() => {
     try { return localStorage.getItem(MICRO_AUTO_KEY) === "true"; } catch { return false; }
   });
@@ -58,6 +60,29 @@ const MicroAccount = () => {
   useEffect(() => {
     try { setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone); } catch { setUserTimezone("UTC"); }
   }, []);
+
+  // Auto-settle open trades when market resolves
+  useEffect(() => {
+    if (!events || micro.openTrades.length === 0) return;
+    const allMarkets = new Map<string, { yesPrice: number; noPrice: number; closed: boolean }>();
+    for (const event of events) {
+      for (const m of event.markets) {
+        allMarkets.set(m.id, { yesPrice: m.yesPrice, noPrice: m.noPrice, closed: m.closed });
+      }
+    }
+    for (const trade of micro.openTrades) {
+      if (autoSettleRef.current.has(trade.id)) continue;
+      const market = allMarkets.get(trade.market_id);
+      if (!market) continue;
+      const yesResolved = market.yesPrice >= 0.95;
+      const noResolved = market.noPrice >= 0.95;
+      if (yesResolved || noResolved) {
+        autoSettleRef.current.add(trade.id);
+        const won = (trade.side === "yes" && yesResolved) || (trade.side === "no" && noResolved);
+        micro.resolveTrade(trade.id, won);
+      }
+    }
+  }, [events, micro.openTrades, micro.resolveTrade]);
 
   const cities = useMemo(() => {
     if (!events) return [];
@@ -154,7 +179,7 @@ const MicroAccount = () => {
     <div className="relative min-h-screen bg-background">
       <div className="scanline fixed inset-0 z-50 h-[200%]" />
 
-      <div className="relative z-10 mx-auto max-w-6xl px-3 sm:px-4 py-4 sm:py-6">
+      <div className="relative z-10 mx-auto max-w-6xl px-2 sm:px-4 py-3 sm:py-6">
         {/* Header */}
         <div className="mb-4 sm:mb-6 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -167,7 +192,7 @@ const MicroAccount = () => {
             <div className="min-w-0">
               <h1 className="text-sm sm:text-lg font-bold tracking-tight text-foreground truncate">MICRO-TRADES ACCOUNT</h1>
               <p className="text-[9px] sm:text-[11px] uppercase tracking-widest text-muted-foreground truncate">
-                Auto-Buy ≤3¢ · YES & NO · Fast Reaction
+                Auto-Buy ≤3¢ · YES Only · Fast Reaction
               </p>
             </div>
           </div>
@@ -195,27 +220,28 @@ const MicroAccount = () => {
           <StatusBar totalBets={events?.length ?? 0} newSignals={newSignals} lastRefresh={lastRefresh} userTimezone={userTimezone} />
         </div>
 
-        {/* Tabs */}
-        <div className="mb-4 sm:mb-6 flex flex-wrap gap-1 rounded-md border border-border bg-card p-1">
-          {TABS.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`flex-1 min-w-[70px] rounded-sm px-1.5 py-1.5 text-[8px] sm:text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                activeTab === tab.key
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              }`}
-            >
-              <span className="hidden sm:inline">{tab.label}</span>
-              <span className="sm:hidden">{tab.short}</span>
-              {tabCounts[tab.key] > 0 && (
-                <span className={`ml-1 text-[8px] ${activeTab === tab.key ? "opacity-70" : "text-muted-foreground"}`}>
-                  ({tabCounts[tab.key]})
-                </span>
-              )}
-            </button>
-          ))}
+        {/* Tabs -- scrollable on mobile */}
+        <div className="mb-3 sm:mb-6 overflow-x-auto scrollbar-none">
+          <div className="flex gap-1 rounded-md border border-border bg-card p-1 min-w-max">
+            {TABS.map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`whitespace-nowrap rounded-sm px-2 sm:px-3 py-1.5 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                  activeTab === tab.key
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                {tab.label}
+                {tabCounts[tab.key] > 0 && (
+                  <span className={`ml-1 text-[8px] ${activeTab === tab.key ? "opacity-70" : "text-muted-foreground"}`}>
+                    ({tabCounts[tab.key]})
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Content */}
@@ -249,7 +275,7 @@ const MicroAccount = () => {
 
         {/* Footer */}
         <div className="mt-6 sm:mt-8 border-t border-border pt-3 sm:pt-4 text-center text-[9px] sm:text-[10px] uppercase tracking-widest text-muted-foreground">
-          Polymarket Gamma API · Polls every {midnightBoost.isBoostActive ? "2s (BOOST)" : "5s"} · Auto-buy ≤3¢ YES & NO · $25 per position
+          Polymarket Gamma API · Polls every {midnightBoost.isBoostActive ? "2s (BOOST)" : "5s"} · Auto-buy ≤3¢ YES · $25 per position
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import { usePolymarketData } from "@/hooks/usePolymarketData";
 import { useWeatherData } from "@/hooks/useWeatherData";
@@ -15,14 +15,43 @@ import { useToast } from "@/components/ui/use-toast";
 import type { TemperatureEvent, TemperatureMarket } from "@/lib/polymarket";
 import { Thermometer, RefreshCw, AlertTriangle, ArrowLeft, Briefcase } from "lucide-react";
 
-type TabKey = "ready" | "monitoring" | "saved" | "trades";
+type TabKey = "ready" | "asian" | "usa" | "europe" | "other" | "trades";
 
 const TABS: { key: TabKey; label: string; short: string }[] = [
-  { key: "ready", label: "Ready to Trade", short: "Ready" },
-  { key: "monitoring", label: "Monitoring", short: "Monitor" },
-  { key: "saved", label: "Saved Bets", short: "Saved" },
-  { key: "trades", label: "Paper Trades", short: "Trades" },
+  { key: "ready", label: "Ready", short: "Ready" },
+  { key: "asian", label: "Asian", short: "Asian" },
+  { key: "usa", label: "USA", short: "USA" },
+  { key: "europe", label: "Europe", short: "Europe" },
+  { key: "other", label: "Other", short: "Other" },
+  { key: "trades", label: "Trades", short: "Trades" },
 ];
+
+const ASIAN_CITIES = [
+  "seoul", "tokyo", "bangkok", "ho chi minh", "phnom penh", "singapore",
+  "hong kong", "manila", "jakarta", "kuala lumpur", "beijing", "shanghai",
+  "delhi", "mumbai", "dubai", "tel aviv", "ben gurion", "jerusalem", "haifa",
+  "lucknow", "ankara", "istanbul", "cairo",
+];
+
+const USA_CITIES = [
+  "new york", "nyc", "chicago", "los angeles", "miami", "houston", "dallas",
+  "phoenix", "denver", "seattle", "san francisco", "boston", "atlanta",
+  "washington", "las vegas", "austin", "detroit", "portland", "salt lake city",
+  "anchorage", "honolulu", "toronto", "vancouver", "calgary", "montreal", "ottawa",
+];
+
+const EUROPE_CITIES = [
+  "london", "paris", "berlin", "munich", "rome", "madrid", "amsterdam",
+  "zurich", "moscow",
+];
+
+function getRegion(location: string): "asian" | "usa" | "europe" | "other" {
+  const lower = location.toLowerCase().trim();
+  if (ASIAN_CITIES.some(c => lower.includes(c))) return "asian";
+  if (USA_CITIES.some(c => lower.includes(c))) return "usa";
+  if (EUROPE_CITIES.some(c => lower.includes(c))) return "europe";
+  return "other";
+}
 
 interface SessionBackupFile {
   version: 1;
@@ -43,6 +72,7 @@ const TempAccount = () => {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<TabKey>("ready");
   const [tradeTarget, setTradeTarget] = useState<{ market: TemperatureMarket; event: TemperatureEvent } | null>(null);
+  const autoSettleRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     try { setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone); } catch { setUserTimezone("UTC"); }
@@ -56,7 +86,6 @@ const TempAccount = () => {
 
   const { data: weatherData } = useWeatherData(cities);
 
-  // Resolution source URLs for all events
   const resolutionUrls = useMemo(() => {
     const urls: Record<string, string> = {};
     for (const event of events ?? []) {
@@ -67,7 +96,6 @@ const TempAccount = () => {
 
   const { data: resolutionData } = useResolutionData(resolutionUrls);
 
-  // Real-time BID for open positions
   const openMarketIds = useMemo(
     () => paper.openTrades.map(t => t.market_id),
     [paper.openTrades]
@@ -80,52 +108,85 @@ const TempAccount = () => {
   const now = useMemo(() => new Date(), [dataUpdatedAt]);
   const todayStr = now.toISOString().split("T")[0];
 
+  // Auto-settle open trades when market resolves (Part 8)
+  useEffect(() => {
+    if (!events || paper.openTrades.length === 0) return;
+    const allMarkets = new Map<string, { yesPrice: number; noPrice: number; closed: boolean }>();
+    for (const event of events) {
+      for (const m of event.markets) {
+        allMarkets.set(m.id, { yesPrice: m.yesPrice, noPrice: m.noPrice, closed: m.closed });
+      }
+    }
+    for (const trade of paper.openTrades) {
+      if (autoSettleRef.current.has(trade.id)) continue;
+      const market = allMarkets.get(trade.market_id);
+      if (!market) continue;
+      const yesResolved = market.yesPrice >= 0.95;
+      const noResolved = market.noPrice >= 0.95;
+      if (yesResolved || noResolved) {
+        autoSettleRef.current.add(trade.id);
+        const won = (trade.side === "yes" && yesResolved) || (trade.side === "no" && noResolved);
+        paper.resolveTrade(trade.id, won);
+      }
+    }
+  }, [events, paper.openTrades, paper.resolveTrade]);
+
+  type EnrichedEvent = TemperatureEvent & { betDate: string; isObs: boolean };
+
   const categorized = useMemo(() => {
-    if (!events) return { ready: [], monitoring: [], saved: [], trades: [] } as Record<TabKey, (TemperatureEvent & { betDate: string; isObs: boolean })[]>;
-
-    const result: Record<TabKey, (TemperatureEvent & { betDate: string; isObs: boolean })[]> = {
-      ready: [], monitoring: [], saved: [], trades: [],
+    const empty: Record<TabKey, EnrichedEvent[]> = {
+      ready: [], asian: [], usa: [], europe: [], other: [], trades: [],
     };
+    if (!events) return empty;
 
-    const twoDaysAgo = new Date(now.getTime() - 2 * 86400000).toISOString().split("T")[0];
-    const twoDaysAhead = new Date(now.getTime() + 2 * 86400000).toISOString().split("T")[0];
+    const result = { ...empty };
 
     for (const event of events) {
       const betDate = getBetDate(event);
       const isObs = betDate <= todayStr;
-      const enriched = { ...event, betDate, isObs };
+      const enriched: EnrichedEvent = { ...event, betDate, isObs };
+      const region = getRegion(event.location);
 
-      if (betDate < twoDaysAgo) continue;
-      if (betDate > twoDaysAhead) continue;
+      // Only today's bets go into region tabs
+      if (betDate === todayStr) {
+        result[region].push(enriched);
+      }
 
-      if (isSaved(event.id)) result.saved.push(enriched);
-
-      // Check observed cooling
+      // Ready tab: 5 parameters (Part 9)
       const cityKey = event.location.toLowerCase().trim();
       const cityWeather = weatherData?.[cityKey];
       const dateW = cityWeather?.dates?.[betDate];
       const coolingConfirmed = dateW?.observedCoolingConfirmed ?? (isObs && dateW?.isPast) ?? false;
       const resConfirmed = resolutionData?.[event.id]?.isObserved ?? false;
+      const highTemp = dateW?.highF ?? cityWeather?.highestRecordedF ?? null;
+      const closesInMs = event.endDate ? new Date(event.endDate).getTime() - Date.now() : 0;
 
-      if (isObs && (coolingConfirmed || resConfirmed)) {
+      const isReady =
+        betDate === todayStr &&
+        (coolingConfirmed || resConfirmed) &&
+        event.markets.length > 0 &&
+        closesInMs >= 3600000 &&
+        highTemp !== null;
+
+      if (isReady) {
         result.ready.push(enriched);
-      } else {
-        result.monitoring.push(enriched);
       }
     }
 
-    const sortEvents = (arr: typeof result.ready) =>
+    const sortByPriority = (arr: EnrichedEvent[]) =>
       arr.sort((a, b) => {
         if (a.priorityRank !== b.priorityRank) return a.priorityRank - b.priorityRank;
         return a.betDate.localeCompare(b.betDate);
       });
 
-    sortEvents(result.ready);
-    sortEvents(result.monitoring);
-    sortEvents(result.saved);
+    sortByPriority(result.ready);
+    sortByPriority(result.asian);
+    sortByPriority(result.usa);
+    sortByPriority(result.europe);
+    sortByPriority(result.other);
 
     return result;
-  }, [events, todayStr, isSaved, now, weatherData, resolutionData]);
+  }, [events, todayStr, weatherData, resolutionData]);
 
   const handleDownloadSession = useCallback(() => {
     const payload: SessionBackupFile = {
@@ -171,14 +232,16 @@ const TempAccount = () => {
 
   const tabCounts = useMemo(() => ({
     ready: categorized.ready.length,
-    monitoring: categorized.monitoring.length,
-    saved: categorized.saved.length,
+    asian: categorized.asian.length,
+    usa: categorized.usa.length,
+    europe: categorized.europe.length,
+    other: categorized.other.length,
     trades: paper.openTrades.length + paper.closedTrades.length,
   }), [categorized, paper.openTrades, paper.closedTrades]);
 
   let refCounter = 0;
 
-  const renderEvents = (items: (TemperatureEvent & { betDate: string; isObs: boolean })[]) => {
+  const renderEvents = (items: EnrichedEvent[], hideClocks = false) => {
     if (items.length === 0) {
       return (
         <div className="flex flex-col items-center justify-center py-12">
@@ -205,6 +268,7 @@ const TempAccount = () => {
               betDate={event.betDate}
               onPlaceTrade={(market) => setTradeTarget({ market, event })}
               resolutionStatus={resolutionData?.[event.id]}
+              hideClocks={hideClocks}
             />
           );
         })}
@@ -216,9 +280,9 @@ const TempAccount = () => {
     <div className="relative min-h-screen bg-background">
       <div className="scanline fixed inset-0 z-50 h-[200%]" />
 
-      <div className="relative z-10 mx-auto max-w-6xl px-3 sm:px-4 py-4 sm:py-6">
+      <div className="relative z-10 mx-auto max-w-6xl px-2 sm:px-4 py-3 sm:py-6">
         {/* Header */}
-        <div className="mb-4 sm:mb-6 flex items-center justify-between gap-2">
+        <div className="mb-3 sm:mb-6 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <Link to="/" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
               <ArrowLeft className="h-4 w-4" />
@@ -243,36 +307,37 @@ const TempAccount = () => {
         </div>
 
         {/* Portfolio */}
-        <div className="mb-4 sm:mb-6">
+        <div className="mb-3 sm:mb-6">
           <PortfolioHeader balance={paper.balance} openTrades={paper.openTrades} closedTrades={paper.closedTrades} totalProfit={paper.totalProfit} events={events} label="Paper" />
         </div>
 
         {/* Status Bar */}
-        <div className="mb-4 sm:mb-6">
+        <div className="mb-3 sm:mb-6">
           <StatusBar totalBets={events?.length ?? 0} newSignals={newSignals} lastRefresh={lastRefresh} userTimezone={userTimezone} />
         </div>
 
-        {/* Tabs */}
-        <div className="mb-4 sm:mb-6 flex flex-wrap gap-1 rounded-md border border-border bg-card p-1">
-          {TABS.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`flex-1 min-w-[70px] rounded-sm px-1.5 py-1.5 text-[8px] sm:text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                activeTab === tab.key
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              }`}
-            >
-              <span className="hidden sm:inline">{tab.label}</span>
-              <span className="sm:hidden">{tab.short}</span>
-              {tabCounts[tab.key] > 0 && (
-                <span className={`ml-1 text-[8px] ${activeTab === tab.key ? "opacity-70" : "text-muted-foreground"}`}>
-                  ({tabCounts[tab.key]})
-                </span>
-              )}
-            </button>
-          ))}
+        {/* Tabs -- scrollable on mobile */}
+        <div className="mb-3 sm:mb-6 overflow-x-auto scrollbar-none">
+          <div className="flex gap-1 rounded-md border border-border bg-card p-1 min-w-max">
+            {TABS.map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`whitespace-nowrap rounded-sm px-2 sm:px-3 py-1.5 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                  activeTab === tab.key
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                {tab.label}
+                {tabCounts[tab.key] > 0 && (
+                  <span className={`ml-1 text-[8px] ${activeTab === tab.key ? "opacity-70" : "text-muted-foreground"}`}>
+                    ({tabCounts[tab.key]})
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Content */}
@@ -300,9 +365,12 @@ const TempAccount = () => {
           />
         )}
 
-        {!isLoading && !error && activeTab !== "trades" && renderEvents(categorized[activeTab])}
+        {!isLoading && !error && activeTab === "ready" && renderEvents(categorized.ready, true)}
+        {!isLoading && !error && activeTab === "asian" && renderEvents(categorized.asian)}
+        {!isLoading && !error && activeTab === "usa" && renderEvents(categorized.usa)}
+        {!isLoading && !error && activeTab === "europe" && renderEvents(categorized.europe)}
+        {!isLoading && !error && activeTab === "other" && renderEvents(categorized.other)}
 
-        {/* Paper Trade Dialog */}
         {tradeTarget && (
           <PaperTradeDialog
             market={tradeTarget.market} eventId={tradeTarget.event.id} eventTitle={tradeTarget.event.title}
@@ -310,9 +378,8 @@ const TempAccount = () => {
           />
         )}
 
-        {/* Footer */}
         <div className="mt-6 sm:mt-8 border-t border-border pt-3 sm:pt-4 text-center text-[9px] sm:text-[10px] uppercase tracking-widest text-muted-foreground">
-          Data from Polymarket Gamma API · Auto-refreshes every 5s · Weather scans every 30s · Resolution source verified
+          Data from Polymarket Gamma API · Auto-refreshes every 5s · Weather scans every 30s
         </div>
       </div>
     </div>

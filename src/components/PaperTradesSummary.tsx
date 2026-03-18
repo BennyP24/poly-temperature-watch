@@ -107,7 +107,7 @@ export function PaperTradesSummary({
           onChange={handleUploadInput}
         />
 
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
           <div className="flex flex-col items-center">
             <span className="text-[9px] uppercase tracking-wider text-muted-foreground">Balance</span>
             <span className="text-lg font-bold text-foreground tabular-nums">${balance.toFixed(2)}</span>
@@ -173,7 +173,7 @@ export function PaperTradesSummary({
                     <span>Stake: <span className="tabular-nums text-foreground">${trade.amount.toFixed(2)}</span></span>
                     <span>Entry: <span className="tabular-nums text-foreground">{(trade.price * 100).toFixed(1)}¢</span></span>
                     <span>
-                      Bid: <span className="tabular-nums text-foreground">{bidPrice === null ? "--" : `${(bidPrice * 100).toFixed(1)}¢`}</span>
+                      Sell @: <span className="tabular-nums text-foreground">{bidPrice === null ? "--" : `${(bidPrice * 100).toFixed(1)}¢`}</span>
                     </span>
                     <span className="sm:col-span-2">
                       Live P/L: <span className={`tabular-nums ${liveProfit === null ? "text-foreground" : liveProfit >= 0 ? "text-primary" : "text-destructive"}`}>

@@ -83,7 +83,7 @@ export function MicroTradesSummary({
           </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
           <div className="flex flex-col items-center">
             <span className="text-[9px] uppercase tracking-wider text-muted-foreground">Balance</span>
             <span className="text-lg font-bold text-foreground tabular-nums">${balance.toFixed(2)}</span>
@@ -137,7 +137,7 @@ export function MicroTradesSummary({
                   <div className="mb-2 grid grid-cols-2 gap-1 text-[10px] text-muted-foreground sm:grid-cols-5">
                     <span>Stake: <span className="tabular-nums text-foreground">${trade.amount.toFixed(2)}</span></span>
                     <span>Entry: <span className="tabular-nums text-foreground">{(trade.price * 100).toFixed(1)}¢</span></span>
-                    <span>Bid: <span className="tabular-nums text-foreground">{bidPrice === null ? "--" : `${(bidPrice * 100).toFixed(1)}¢`}</span></span>
+                    <span>Sell @: <span className="tabular-nums text-foreground">{bidPrice === null ? "--" : `${(bidPrice * 100).toFixed(1)}¢`}</span></span>
                     <span className="sm:col-span-2">
                       Live P/L: <span className={`tabular-nums ${liveProfit === null ? "text-foreground" : liveProfit >= 0 ? "text-primary" : "text-destructive"}`}>
                         {liveProfit === null ? "--" : `${liveProfit >= 0 ? "+" : ""}${liveProfit.toFixed(2)}`}
@@ -192,7 +192,7 @@ export function MicroTradesSummary({
         <div className="flex flex-col items-center justify-center py-12">
           <Zap className="mb-2 h-6 w-6 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">No micro trades yet</p>
-          <p className="mt-1 text-[10px] text-muted-foreground">Enable auto-buy to grab NO ≤3¢ on new bets</p>
+          <p className="mt-1 text-[10px] text-muted-foreground">Enable auto-buy to grab YES ≤3¢ on new bets</p>
         </div>
       )}
     </div>

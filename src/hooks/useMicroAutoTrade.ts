@@ -5,6 +5,7 @@ import { useToast } from "@/components/ui/use-toast";
 const MICRO_BET_AMOUNT = 25;
 const MAX_PRICE = 0.03;
 const MAX_OPTIONS = 9;
+const NEW_EVENT_WINDOW_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 interface MicroAutoTradeOpts {
   events: TemperatureEvent[] | undefined;
@@ -26,57 +27,45 @@ export function useMicroAutoTrade({ events, accountId, balance, placeTrade, enab
   const processNewEvents = useCallback(async () => {
     if (!enabled || !events || !accountId) return;
 
+    const now = Date.now();
+
     for (const event of events) {
       if (event.markets.length >= MAX_OPTIONS) continue;
 
+      // Only process brand-new events (created within the last few hours)
+      const createdAt = new Date(event.createdAt).getTime();
+      if (now - createdAt > NEW_EVENT_WINDOW_MS) continue;
+
       for (const market of event.markets) {
-        // Buy YES if price <= 3 cents
         const yesKey = `${market.id}-yes`;
-        if (!processedRef.current.has(yesKey)) {
+        if (processedRef.current.has(yesKey)) continue;
+
+        if (market.yesPrice > MAX_PRICE || market.yesPrice <= 0) {
           processedRef.current.add(yesKey);
-          if (market.yesPrice <= MAX_PRICE && market.yesPrice > 0 && balanceRef.current >= MICRO_BET_AMOUNT) {
-            const success = await placeTrade({
-              eventId: event.id,
-              eventTitle: event.title,
-              marketId: market.id,
-              marketTitle: market.groupItemTitle,
-              side: "yes",
-              price: market.yesPrice,
-              amount: MICRO_BET_AMOUNT,
-              betUrl: event.polymarketUrl,
-            });
-            if (success) {
-              toast({
-                title: "Micro Trade: YES",
-                description: `YES ${market.groupItemTitle} @ ${(market.yesPrice * 100).toFixed(1)}¢ · $${MICRO_BET_AMOUNT}`,
-              });
-            }
-          }
+          continue;
         }
 
-        // Buy NO if price <= 3 cents
-        const noKey = `${market.id}-no`;
-        if (!processedRef.current.has(noKey)) {
-          processedRef.current.add(noKey);
-          if (market.noPrice <= MAX_PRICE && market.noPrice > 0 && balanceRef.current >= MICRO_BET_AMOUNT) {
-            const success = await placeTrade({
-              eventId: event.id,
-              eventTitle: event.title,
-              marketId: market.id,
-              marketTitle: market.groupItemTitle,
-              side: "no",
-              price: market.noPrice,
-              amount: MICRO_BET_AMOUNT,
-              betUrl: event.polymarketUrl,
-            });
-            if (success) {
-              toast({
-                title: "Micro Trade: NO",
-                description: `NO ${market.groupItemTitle} @ ${(market.noPrice * 100).toFixed(1)}¢ · $${MICRO_BET_AMOUNT}`,
-              });
-            }
-          }
+        if (balanceRef.current < MICRO_BET_AMOUNT) continue;
+
+        const success = await placeTrade({
+          eventId: event.id,
+          eventTitle: event.title,
+          marketId: market.id,
+          marketTitle: market.groupItemTitle,
+          side: "yes",
+          price: market.yesPrice,
+          amount: MICRO_BET_AMOUNT,
+          betUrl: event.polymarketUrl,
+        });
+
+        if (success) {
+          processedRef.current.add(yesKey);
+          toast({
+            title: "Micro Trade: YES",
+            description: `YES ${market.groupItemTitle} @ ${(market.yesPrice * 100).toFixed(1)}¢ · $${MICRO_BET_AMOUNT}`,
+          });
         }
+        // If trade failed, don't add to processedRef so it retries next cycle
       }
     }
   }, [events, accountId, enabled, placeTrade, toast]);
