@@ -6,6 +6,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const OWM_KEY = Deno.env.get("OWM_API_KEY") || "c373407c1960a367bfdd6779e302577b";
+
 const CITY_COORDS: Record<string, { lat: number; lon: number; tz: string }> = {
   munich: { lat: 48.14, lon: 11.58, tz: "Europe/Berlin" },
   london: { lat: 51.51, lon: -0.13, tz: "Europe/London" },
@@ -104,9 +106,30 @@ function fToC(f: number): number {
   return (f - 32) * 5 / 9;
 }
 
+function round3(v: number | null): number | null {
+  return v !== null ? Math.round(v * 1000) / 1000 : null;
+}
+
+function localDate(epochSec: number, tz: string): string {
+  return new Date(epochSec * 1000).toLocaleDateString("en-CA", { timeZone: tz });
+}
+
+function localHour(epochSec: number, tz: string): number {
+  return parseInt(
+    new Date(epochSec * 1000).toLocaleTimeString("en-US", { timeZone: tz, hour: "numeric", hour12: false }),
+  );
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  if (!OWM_KEY) {
+    return new Response(JSON.stringify({ error: "OWM_API_KEY not configured" }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 
   try {
@@ -128,7 +151,7 @@ Deno.serve(async (req) => {
 
       const directCoords = CITY_COORDS[canonicalCity];
       const fallbackKey = Object.keys(CITY_COORDS).find(
-        (key) => canonicalCity.includes(key) || key.includes(canonicalCity)
+        (key) => canonicalCity.includes(key) || key.includes(canonicalCity),
       );
       const coords = directCoords ?? (fallbackKey ? CITY_COORDS[fallbackKey] : undefined);
 
@@ -138,63 +161,92 @@ Deno.serve(async (req) => {
       }
 
       try {
-        // Fetch from Open-Meteo (same data source as resolution websites like weather.com)
-        const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=temperature_2m&hourly=temperature_2m&timezone=${encodeURIComponent(coords.tz)}&forecast_days=3&past_days=2&temperature_unit=fahrenheit`;
-        const resp = await fetch(apiUrl);
-        const data = await resp.json();
+        const base = "https://api.openweathermap.org/data/2.5";
+        const qs = `lat=${coords.lat}&lon=${coords.lon}&appid=${OWM_KEY}&units=imperial`;
 
-        const currentTempF = data.current?.temperature_2m ?? null;
-        const hourlyTimes: string[] = data.hourly?.time || [];
-        const hourlyTemps: number[] = data.hourly?.temperature_2m || [];
+        const [currentResp, forecastResp] = await Promise.all([
+          fetch(`${base}/weather?${qs}`),
+          fetch(`${base}/forecast?${qs}`),
+        ]);
+
+        const currentData = await currentResp.json();
+        const forecastData = await forecastResp.json();
+
+        if (currentData.cod && currentData.cod !== 200) {
+          results[city] = { error: currentData.message ?? "OWM current weather error" };
+          return;
+        }
+
+        const currentTempF: number | null = currentData.main?.temp ?? null;
 
         const now = new Date();
         const localDateStr = now.toLocaleDateString("en-CA", { timeZone: coords.tz });
-        const currentHour = parseInt(now.toLocaleTimeString("en-US", { timeZone: coords.tz, hour: "numeric", hour12: false }));
+        const currentHourNum = parseInt(
+          now.toLocaleTimeString("en-US", { timeZone: coords.tz, hour: "numeric", hour12: false }),
+        );
 
-        // Build hourly data indexed by date
+        // Build data points from the 5-day / 3-hour forecast, grouped by local date
         const hourlyByDate: Record<string, { hour: number; tempF: number }[]> = {};
-        for (let i = 0; i < hourlyTimes.length; i++) {
-          const dateStr = hourlyTimes[i].split("T")[0];
-          const hour = parseInt(hourlyTimes[i].split("T")[1].split(":")[0]);
+
+        for (const entry of (forecastData.list ?? [])) {
+          const dt: number = entry.dt;
+          const dateStr = localDate(dt, coords.tz);
+          const hour = localHour(dt, coords.tz);
+          const tempF: number = entry.main?.temp ?? 0;
+
           if (!hourlyByDate[dateStr]) hourlyByDate[dateStr] = [];
-          hourlyByDate[dateStr].push({ hour, tempF: hourlyTemps[i] });
+          hourlyByDate[dateStr].push({ hour, tempF });
         }
 
-        // For each date, compute high from recorded hours only (for today/past), or full day for future
+        // Inject the current real-time reading into today's data
+        if (currentTempF !== null) {
+          if (!hourlyByDate[localDateStr]) hourlyByDate[localDateStr] = [];
+          const existing = hourlyByDate[localDateStr].find(h => h.hour === currentHourNum);
+          if (!existing) {
+            hourlyByDate[localDateStr].push({ hour: currentHourNum, tempF: currentTempF });
+          } else if (currentTempF > existing.tempF) {
+            existing.tempF = currentTempF;
+          }
+          hourlyByDate[localDateStr].sort((a, b) => a.hour - b.hour);
+        }
+
         const dateData: Record<string, any> = {};
+
         for (const [dateStr, hours] of Object.entries(hourlyByDate)) {
           const isToday = dateStr === localDateStr;
           const isPast = dateStr < localDateStr;
           const isFuture = dateStr > localDateStr;
 
-          let recordedHours = hours;
-          if (isToday) {
-            recordedHours = hours.filter(h => h.hour <= currentHour);
-          }
+          const recordedHours = isToday
+            ? hours.filter(h => h.hour <= currentHourNum)
+            : isPast
+              ? hours
+              : [];
 
           const highF = isPast || isToday
             ? (recordedHours.length > 0 ? Math.max(...recordedHours.map(h => h.tempF)) : null)
             : (hours.length > 0 ? Math.max(...hours.map(h => h.tempF)) : null);
 
-          const peakEntry = hours.reduce((max, h) => h.tempF > max.tempF ? h : max, hours[0]);
+          const peakEntry = hours.length > 0
+            ? hours.reduce((max, h) => h.tempF > max.tempF ? h : max, hours[0])
+            : null;
           const peakHour = peakEntry?.hour ?? null;
-          const pastPeak = isToday && peakHour !== null && currentHour > peakHour;
+          const pastPeak = isToday && peakHour !== null && currentHourNum > peakHour;
 
-          // Build hourly array for frontend
           const hourlyArr = hours.map(h => ({
             hour: h.hour,
-            tempF: Math.round(h.tempF * 1000) / 1000,
-            tempC: Math.round(fToC(h.tempF) * 1000) / 1000,
-            isRecorded: isPast || (isToday && h.hour <= currentHour),
+            tempF: round3(h.tempF)!,
+            tempC: round3(fToC(h.tempF))!,
+            isRecorded: isPast || (isToday && h.hour <= currentHourNum),
           }));
 
-          // Observed cooling: requires 3 consecutive declining recorded hours after the recorded peak
+          // Cooling detection: 2 consecutive declining readings after peak (3-hour intervals)
           let observedCoolingConfirmed = false;
           let coolingStartHour: number | null = null;
 
           if (isPast) {
             observedCoolingConfirmed = true;
-          } else if (isToday && recordedHours.length >= 4) {
+          } else if (isToday && recordedHours.length >= 3) {
             const recPeak = recordedHours.reduce((max, h) => h.tempF > max.tempF ? h : max, recordedHours[0]);
             const afterPeak = recordedHours
               .filter(h => h.hour > recPeak.hour)
@@ -204,7 +256,7 @@ Deno.serve(async (req) => {
             for (let i = 1; i < afterPeak.length; i++) {
               if (afterPeak[i].tempF < afterPeak[i - 1].tempF) {
                 consecutiveDeclines++;
-                if (consecutiveDeclines >= 3) {
+                if (consecutiveDeclines >= 2) {
                   observedCoolingConfirmed = true;
                   coolingStartHour = afterPeak[i - consecutiveDeclines]?.hour ?? afterPeak[i - 1].hour;
                   break;
@@ -216,10 +268,10 @@ Deno.serve(async (req) => {
           }
 
           dateData[dateStr] = {
-            highF: highF !== null ? Math.round(highF * 1000) / 1000 : null,
-            highC: highF !== null ? Math.round(fToC(highF) * 1000) / 1000 : null,
-            forecastHighF: hours.length > 0 ? Math.round(Math.max(...hours.map(h => h.tempF)) * 1000) / 1000 : null,
-            forecastHighC: hours.length > 0 ? Math.round(fToC(Math.max(...hours.map(h => h.tempF))) * 1000) / 1000 : null,
+            highF: round3(highF),
+            highC: round3(highF !== null ? fToC(highF) : null),
+            forecastHighF: hours.length > 0 ? round3(Math.max(...hours.map(h => h.tempF))) : null,
+            forecastHighC: hours.length > 0 ? round3(fToC(Math.max(...hours.map(h => h.tempF)))) : null,
             peakHour,
             pastPeak,
             isToday,
@@ -233,8 +285,6 @@ Deno.serve(async (req) => {
 
         const todayData = dateData[localDateStr];
 
-        const round3 = (v: number | null) => v !== null ? Math.round(v * 1000) / 1000 : null;
-
         results[city] = {
           currentTempF: round3(currentTempF),
           currentTempC: round3(currentTempF !== null ? fToC(currentTempF) : null),
@@ -243,7 +293,7 @@ Deno.serve(async (req) => {
           forecastHighF: todayData?.forecastHighF ?? null,
           forecastHighC: todayData?.forecastHighC ?? null,
           peakHour: todayData?.peakHour ?? null,
-          currentHour,
+          currentHour: currentHourNum,
           pastPeak: todayData?.pastPeak ?? false,
           observedCoolingConfirmed: todayData?.observedCoolingConfirmed ?? false,
           coolingStartHour: todayData?.coolingStartHour ?? null,

@@ -30,7 +30,8 @@ const ASIAN_CITIES = [
   "seoul", "tokyo", "bangkok", "ho chi minh", "phnom penh", "singapore",
   "hong kong", "manila", "jakarta", "kuala lumpur", "beijing", "shanghai",
   "delhi", "mumbai", "dubai", "tel aviv", "ben gurion", "jerusalem", "haifa",
-  "lucknow", "ankara", "istanbul", "cairo",
+  "lucknow", "ankara", "istanbul", "cairo", "taipei", "hanoi", "colombo",
+  "karachi", "dhaka", "riyadh", "doha", "muscat", "tehran",
 ];
 
 const USA_CITIES = [
@@ -38,11 +39,16 @@ const USA_CITIES = [
   "phoenix", "denver", "seattle", "san francisco", "boston", "atlanta",
   "washington", "las vegas", "austin", "detroit", "portland", "salt lake city",
   "anchorage", "honolulu", "toronto", "vancouver", "calgary", "montreal", "ottawa",
+  "minneapolis", "philadelphia", "charlotte", "nashville", "memphis", "orlando",
+  "san diego", "san antonio", "tampa", "sacramento", "kansas city", "indianapolis",
 ];
 
 const EUROPE_CITIES = [
   "london", "paris", "berlin", "munich", "rome", "madrid", "amsterdam",
-  "zurich", "moscow",
+  "zurich", "moscow", "milan", "warsaw", "vienna", "prague", "lisbon",
+  "barcelona", "dublin", "stockholm", "oslo", "copenhagen", "helsinki",
+  "brussels", "budapest", "bucharest", "athens", "belgrade", "zagreb",
+  "kyiv", "kiev", "manchester", "birmingham", "frankfurt", "hamburg",
 ];
 
 function getRegion(location: string): "asian" | "usa" | "europe" | "other" {
@@ -58,10 +64,6 @@ interface SessionBackupFile {
   exportedAt: string;
   paperTrading: { balance: number; trades: ImportedPaperTrade[] };
   savedBetIds: string[];
-}
-
-function getBetDate(event: TemperatureEvent): string {
-  return (event.endDate || event.createdAt || "").split("T")[0];
 }
 
 const TempAccount = () => {
@@ -106,7 +108,7 @@ const TempAccount = () => {
   const lastRefresh = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
 
   const now = useMemo(() => new Date(), [dataUpdatedAt]);
-  const todayStr = now.toISOString().split("T")[0];
+  const todayStr = now.toLocaleDateString("en-CA");
 
   // Auto-settle open trades when market resolves (Part 8)
   useEffect(() => {
@@ -142,27 +144,23 @@ const TempAccount = () => {
     const result = { ...empty };
 
     for (const event of events) {
-      const betDate = getBetDate(event);
+      const betDate = event.betDate;
       const isObs = betDate <= todayStr;
       const enriched: EnrichedEvent = { ...event, betDate, isObs };
       const region = getRegion(event.location);
 
-      // Only today's bets go into region tabs
-      if (betDate === todayStr) {
-        result[region].push(enriched);
-      }
+      result[region].push(enriched);
 
-      // Ready tab: 5 parameters (Part 9)
       const cityKey = event.location.toLowerCase().trim();
       const cityWeather = weatherData?.[cityKey];
       const dateW = cityWeather?.dates?.[betDate];
       const coolingConfirmed = dateW?.observedCoolingConfirmed ?? (isObs && dateW?.isPast) ?? false;
       const resConfirmed = resolutionData?.[event.id]?.isObserved ?? false;
-      const highTemp = dateW?.highF ?? cityWeather?.highestRecordedF ?? null;
+      const omHigh = dateW?.highF ?? cityWeather?.highestRecordedF ?? cityWeather?.forecastHighF ?? null;
+      const highTemp = resolutionData?.[event.id]?.observedHighF ?? omHigh;
       const closesInMs = event.endDate ? new Date(event.endDate).getTime() - Date.now() : 0;
 
       const isReady =
-        betDate === todayStr &&
         (coolingConfirmed || resConfirmed) &&
         event.markets.length > 0 &&
         closesInMs >= 3600000 &&

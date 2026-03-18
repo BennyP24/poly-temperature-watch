@@ -4,7 +4,7 @@ import type { CityWeather, DateWeather } from "@/hooks/useWeatherData";
 import type { ResolutionStatus } from "@/hooks/useResolutionData";
 import { SignalBadge, type SignalStatus } from "./SignalBadge";
 import { ClockDisplay } from "./ClockDisplay";
-import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, Check, Copy, Eye, BarChart3, Zap, ShieldCheck } from "lucide-react";
+import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, Check, Copy, Zap, ShieldCheck } from "lucide-react";
 
 interface TemperatureBetCardProps {
   event: TemperatureEvent;
@@ -44,9 +44,9 @@ function fToC(f: number): number {
   return (f - 32) * 5 / 9;
 }
 
-function formatDual(f: number | null, decimals = 3): string {
+function formatTemp(f: number | null): string {
   if (f === null) return "--";
-  return `${f.toFixed(decimals)}°F / ${fToC(f).toFixed(decimals)}°C`;
+  return `${f.toFixed(1)}°F / ${fToC(f).toFixed(1)}°C`;
 }
 
 function formatHour(hour: number): string {
@@ -68,10 +68,7 @@ function deriveSignalStatus(
 ): SignalStatus {
   if (!isObservation) return "forecast";
 
-  if (dateWeather?.isPast) {
-    if (resolutionStatus?.isObserved) return "resolved-observed";
-    return "resolved-observed";
-  }
+  if (dateWeather?.isPast) return "resolved-observed";
 
   if (dateWeather?.isToday) {
     const coolingConfirmed = dateWeather.observedCoolingConfirmed ?? weather?.observedCoolingConfirmed ?? false;
@@ -85,11 +82,23 @@ function deriveSignalStatus(
 export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, isMicroSaved, onToggleMicroSave, refNumber, isObservation, betDate, onPlaceTrade, resolutionStatus, hideClocks }: TemperatureBetCardProps) {
   const dateWeather = getDateWeather(weather, betDate);
 
-  const highTemp = dateWeather?.highF ?? weather?.highestRecordedF ?? null;
-  const pastPeak = dateWeather?.pastPeak ?? weather?.pastPeak ?? false;
-  const peakHour = dateWeather?.peakHour ?? weather?.peakHour ?? null;
+  // WU (resolution source) takes priority; Open-Meteo is fallback
+  const wuCurrent = resolutionStatus?.currentTempF ?? null;
+  const wuHigh = resolutionStatus?.observedHighF ?? null;
+  const hasWuData = wuCurrent !== null || wuHigh !== null;
+
+  const omCurrent = weather?.currentTempF ?? null;
+  const omHigh = dateWeather?.highF ?? weather?.highestRecordedF ?? weather?.forecastHighF ?? null;
+
+  const currentTemp = wuCurrent ?? omCurrent;
+  const highTemp = hasWuData ? (wuHigh ?? omHigh) : omHigh;
+  const tempSource: "wu" | "estimate" = hasWuData ? "wu" : "estimate";
+
+  // Cooling detection uses Open-Meteo internally
   const observedCoolingConfirmed = dateWeather?.observedCoolingConfirmed ?? weather?.observedCoolingConfirmed ?? false;
   const coolingStartHour = dateWeather?.coolingStartHour ?? weather?.coolingStartHour ?? null;
+  const peakHour = dateWeather?.peakHour ?? weather?.peakHour ?? null;
+  const pastPeak = dateWeather?.pastPeak ?? weather?.pastPeak ?? false;
 
   const [copied, setCopied] = useState(false);
   const refId = `#T${String(refNumber).padStart(3, "0")}`;
@@ -102,28 +111,20 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
 
   const signalStatus = deriveSignalStatus(isObservation, dateWeather, weather, resolutionStatus);
 
-  // Only show resolution temperature after observed cooling is confirmed
-  const showResolutionTemp = isObservation && observedCoolingConfirmed;
+  // Only mark as "resolution confirmed" when WU data is present AND cooling confirmed
+  const showResolutionTemp = isObservation && observedCoolingConfirmed && hasWuData;
 
-  // Cooling hour from hourly data
-  const coolingHour = (() => {
-    if (!isObservation || !dateWeather?.hourly) return coolingStartHour;
-    const hourly = dateWeather.hourly;
-    let peakIdx = 0;
-    for (let i = 1; i < hourly.length; i++) {
-      if (hourly[i].tempF > hourly[peakIdx].tempF) peakIdx = i;
-    }
-    return hourly[peakIdx]?.hour ?? null;
-  })();
+  const coolingHour = coolingStartHour ?? peakHour;
 
   const isCooling = isObservation && observedCoolingConfirmed;
   const hoursSinceCooling = coolingHour !== null && weather?.currentHour !== undefined
     ? Math.max(0, weather.currentHour - coolingHour)
     : null;
 
-  // Time until market close
   const msUntilClose = event.endDate ? new Date(event.endDate).getTime() - Date.now() : null;
   const hoursUntilClose = msUntilClose !== null ? Math.max(0, Math.floor(msUntilClose / 3600000)) : null;
+
+  const hasAnyTempData = currentTemp !== null || highTemp !== null;
 
   return (
     <div
@@ -137,7 +138,6 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
               : "border-border"
       }`}
     >
-      {/* Status banner */}
       {isCooling && (
         <div className="absolute -top-2 right-3 rounded-sm bg-emerald-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
           Observed Cooling
@@ -222,92 +222,84 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
         <span className="truncate">{event.location}</span>
       </div>
 
-      {/* Weather data */}
-      {weather && !weather.error && (
-        <div className="mb-2 sm:mb-3 rounded-sm border border-border bg-muted/50 p-2 sm:p-3 space-y-2">
-          <div className="flex items-center gap-1 mb-1">
-            <span className="text-[8px] uppercase tracking-widest text-muted-foreground">Resolution Source Data</span>
-            {showResolutionTemp && (
-              <span className="ml-auto text-[8px] uppercase tracking-widest text-emerald-400 font-bold">Observed</span>
-            )}
-            {!isObservation && (
-              <span className="ml-auto text-[8px] uppercase tracking-widest text-blue-400 font-bold">Forecast</span>
-            )}
+      {/* Temperature data */}
+      <div className="mb-2 sm:mb-3 rounded-sm border border-border bg-muted/50 p-2 sm:p-3 space-y-2">
+        <div className="flex items-center gap-1 mb-1">
+          {tempSource === "wu" ? (
+            <span className="text-[8px] uppercase tracking-widest text-emerald-400 font-bold">Resolution Source (WU)</span>
+          ) : (
+            <span className="text-[8px] uppercase tracking-widest text-orange-400 font-bold">Estimate (OpenWeatherMap)</span>
+          )}
+          {isCooling && (
+            <span className="ml-auto text-[8px] uppercase tracking-widest text-emerald-400 font-bold">Cooling Confirmed</span>
+          )}
+          {!isCooling && isObservation && (
+            <span className="ml-auto text-[8px] uppercase tracking-widest text-orange-400 font-bold">Live</span>
+          )}
+          {!isObservation && (
+            <span className="ml-auto text-[8px] uppercase tracking-widest text-blue-400 font-bold">Future</span>
+          )}
+        </div>
+
+        {tempSource === "estimate" && hasAnyTempData && (
+          <div className="text-center text-[8px] text-orange-400/80 -mt-1 mb-1">
+            May differ from final resolution value
           </div>
+        )}
+
+        {hasAnyTempData ? (
           <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
             <div className="flex flex-col items-center gap-0.5">
-              <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">Now</span>
+              <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">Current</span>
               <div className="flex items-center gap-0.5">
                 <Thermometer className="h-3 w-3 text-accent" />
                 <span className="text-[10px] sm:text-xs font-bold text-accent tabular-nums">
-                  {formatDual(weather.currentTempF)}
+                  {formatTemp(currentTemp)}
                 </span>
               </div>
             </div>
             <div className="flex flex-col items-center gap-0.5">
               <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">
-                {showResolutionTemp ? "Observed High" : isObservation ? "Recorded High (Unconfirmed)" : "Forecast High"}
+                {showResolutionTemp ? "Observed High" : "High"}
               </span>
               <div className="flex items-center gap-0.5">
                 <TrendingUp className="h-3 w-3 text-destructive" />
                 <span className={`text-[10px] sm:text-xs font-bold tabular-nums ${showResolutionTemp ? "text-emerald-400" : "text-destructive"}`}>
-                  {formatDual(highTemp)}
+                  {formatTemp(highTemp)}
                 </span>
-                {resolutionStatus?.isObserved && resolutionStatus.observedHighF !== null && (
-                  <span className="ml-1 text-[9px] text-emerald-400 font-bold flex items-center gap-0.5">
-                    <ShieldCheck className="h-2.5 w-2.5" />
-                    {resolutionStatus.observedHighF.toFixed(1)}°F
-                  </span>
-                )}
               </div>
             </div>
           </div>
-          {showResolutionTemp && highTemp !== null && (
-            <div className="text-center text-[9px] text-muted-foreground">
-              Settles at: <span className="font-bold text-foreground">{Math.round(highTemp)}°F / {fToC(Math.round(highTemp)).toFixed(1)}°C</span>
-              <span className="text-[8px] ml-1">(≥0.5 rounds up)</span>
-            </div>
-          )}
-          {!showResolutionTemp && isObservation && (
-            <div className="text-center text-[9px] text-orange-400">
-              Waiting for observed cooling confirmation before resolving...
-            </div>
-          )}
-          {/* Cooling indicator */}
-          {isObservation && coolingHour !== null && (
-            <div className="flex items-center justify-center gap-1.5 text-[10px] sm:text-xs">
-              <TrendingDown className="h-3 w-3 text-muted-foreground" />
-              <span className="text-muted-foreground">
-                Temp drops after <span className="font-semibold text-foreground">{formatHour(coolingHour)}</span> local
-                {isCooling && <span className="ml-1 text-emerald-400 font-bold">· OBSERVED COOLING</span>}
-                {!isCooling && pastPeak && <span className="ml-1 text-orange-400">· Awaiting confirmation</span>}
-              </span>
-            </div>
-          )}
-          {/* Hourly breakdown with OBS/FCST tags */}
-          {dateWeather?.hourly && (
-            <details className="text-[9px]" open={isObservation && dateWeather.hourly.length > 0}>
-              <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Hourly breakdown</summary>
-              <div className="mt-1 grid grid-cols-4 sm:grid-cols-8 gap-0.5">
-                {dateWeather.hourly.map(h => (
-                  <div key={h.hour} className={`text-center rounded-sm px-0.5 py-0.5 ${
-                    h.isRecorded
-                      ? "bg-muted border border-transparent"
-                      : "bg-muted/20 border border-dashed border-border"
-                  } ${h.hour === coolingHour ? "ring-1 ring-emerald-500" : ""}`}>
-                    <div className="text-[8px] text-muted-foreground">{formatHour(h.hour)}</div>
-                    <div className="text-[9px] font-bold text-foreground tabular-nums">{h.tempF.toFixed(1)}°F</div>
-                    <div className="text-[8px] text-muted-foreground tabular-nums">{h.tempC.toFixed(1)}°C</div>
-                    <div className={`text-[7px] font-bold mt-0.5 ${h.isRecorded ? "text-emerald-400" : "text-blue-400"}`}>
-                      {h.isRecorded ? "OBS" : "FCST"}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
-        </div>
-      )}
+        ) : (
+          <div className="text-center text-[9px] text-muted-foreground py-1">
+            Waiting for weather data...
+          </div>
+        )}
+
+        {showResolutionTemp && wuHigh !== null && (
+          <div className="text-center text-[9px] text-muted-foreground">
+            Settles at: <span className="font-bold text-foreground">{Math.round(wuHigh)}°F / {fToC(Math.round(wuHigh)).toFixed(1)}°C</span>
+            <span className="text-[8px] ml-1">(≥0.5 rounds up)</span>
+          </div>
+        )}
+        {!showResolutionTemp && isObservation && highTemp !== null && (
+          <div className="text-center text-[9px] text-orange-400">
+            {hasWuData ? "Waiting for 3h cooling confirmation..." : "Estimate only — waiting for resolution source..."}
+          </div>
+        )}
+
+        {/* Cooling indicator */}
+        {isObservation && coolingHour !== null && (
+          <div className="flex items-center justify-center gap-1.5 text-[10px] sm:text-xs">
+            <TrendingDown className="h-3 w-3 text-muted-foreground" />
+            <span className="text-muted-foreground">
+              Peak at <span className="font-semibold text-foreground">{formatHour(coolingHour)}</span> local
+              {isCooling && <span className="ml-1 text-emerald-400 font-bold">· CONFIRMED COOLING</span>}
+              {!isCooling && pastPeak && <span className="ml-1 text-orange-400">· Awaiting 3h decline</span>}
+            </span>
+          </div>
+        )}
+      </div>
 
       {/* Clocks */}
       {!hideClocks && (
@@ -331,7 +323,7 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
           {event.markets
             .sort((a, b) => b.yesPrice - a.yesPrice)
             .map((m) => {
-              const correct = showResolutionTemp && isCorrectAnswer(m.groupItemTitle, highTemp);
+              const correct = showResolutionTemp && isCorrectAnswer(m.groupItemTitle, wuHigh);
               const yesProfitPct = m.yesPrice > 0 ? ((1 - m.yesPrice) / m.yesPrice) * 100 : 0;
               const noProfitPct = m.noPrice > 0 ? ((1 - m.noPrice) / m.noPrice) * 100 : 0;
 

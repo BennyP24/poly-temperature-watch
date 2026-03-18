@@ -24,10 +24,6 @@ const TABS: { key: TabKey; label: string; short: string }[] = [
 
 const MICRO_AUTO_KEY = "micro-auto-enabled";
 
-function getBetDate(event: TemperatureEvent): string {
-  return (event.endDate || event.createdAt || "").split("T")[0];
-}
-
 const MicroAccount = () => {
   const midnightBoost = useMidnightBoost();
   const { data: events, isLoading, error, dataUpdatedAt, refetch, isFetching } = usePolymarketData(midnightBoost.recommendedPollMs);
@@ -103,7 +99,7 @@ const MicroAccount = () => {
   const lastRefresh = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
 
   const now = useMemo(() => new Date(), [dataUpdatedAt]);
-  const todayStr = now.toISOString().split("T")[0];
+  const todayStr = now.toLocaleDateString("en-CA");
 
   // Events we have active trades in
   const activeEventIds = useMemo(() => {
@@ -114,13 +110,10 @@ const MicroAccount = () => {
   // Upcoming: future bets within 48 hours
   const upcoming = useMemo(() => {
     if (!events) return [];
-    const twoDaysAhead = new Date(now.getTime() + 2 * 86400000).toISOString().split("T")[0];
+    const twoDaysAhead = new Date(now.getTime() + 2 * 86400000).toLocaleDateString("en-CA");
     return events
-      .filter(e => {
-        const betDate = getBetDate(e);
-        return betDate > todayStr && betDate <= twoDaysAhead;
-      })
-      .map(e => ({ ...e, betDate: getBetDate(e), isObs: false }))
+      .filter(e => e.betDate > todayStr && e.betDate <= twoDaysAhead)
+      .map(e => ({ ...e, betDate: e.betDate, isObs: false }))
       .sort((a, b) => a.betDate.localeCompare(b.betDate));
   }, [events, todayStr, now]);
 
@@ -129,7 +122,7 @@ const MicroAccount = () => {
     if (!events) return [];
     return events
       .filter(e => activeEventIds.has(e.id))
-      .map(e => ({ ...e, betDate: getBetDate(e), isObs: getBetDate(e) <= todayStr }))
+      .map(e => ({ ...e, betDate: e.betDate, isObs: e.betDate <= todayStr }))
       .sort((a, b) => a.betDate.localeCompare(b.betDate));
   }, [events, activeEventIds, todayStr]);
 

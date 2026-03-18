@@ -125,6 +125,95 @@ function getTimezone(location: string): string {
   return partialMatch?.[1] ?? "UTC";
 }
 
+// City → Weather Underground URL path for the resolution source
+const CITY_WU_URLS: Record<string, string> = {
+  "miami": "https://www.wunderground.com/weather/us/fl/miami/KMIA",
+  "new york": "https://www.wunderground.com/weather/us/ny/new-york-city/KLGA",
+  "nyc": "https://www.wunderground.com/weather/us/ny/new-york-city/KLGA",
+  "chicago": "https://www.wunderground.com/weather/us/il/chicago/KORD",
+  "los angeles": "https://www.wunderground.com/weather/us/ca/los-angeles/KLAX",
+  "houston": "https://www.wunderground.com/weather/us/tx/houston/KIAH",
+  "dallas": "https://www.wunderground.com/weather/us/tx/dallas/KDFW",
+  "phoenix": "https://www.wunderground.com/weather/us/az/phoenix/KPHX",
+  "denver": "https://www.wunderground.com/weather/us/co/denver/KDEN",
+  "seattle": "https://www.wunderground.com/weather/us/wa/seattle/KSEA",
+  "san francisco": "https://www.wunderground.com/weather/us/ca/san-francisco/KSFO",
+  "boston": "https://www.wunderground.com/weather/us/ma/boston/KBOS",
+  "atlanta": "https://www.wunderground.com/weather/us/ga/atlanta/KATL",
+  "washington": "https://www.wunderground.com/weather/us/dc/washington/KDCA",
+  "las vegas": "https://www.wunderground.com/weather/us/nv/las-vegas/KLAS",
+  "austin": "https://www.wunderground.com/weather/us/tx/austin/KAUS",
+  "detroit": "https://www.wunderground.com/weather/us/mi/detroit/KDTW",
+  "portland": "https://www.wunderground.com/weather/us/or/portland/KPDX",
+  "salt lake city": "https://www.wunderground.com/weather/us/ut/salt-lake-city/KSLC",
+  "anchorage": "https://www.wunderground.com/weather/us/ak/anchorage/PANC",
+  "honolulu": "https://www.wunderground.com/weather/us/hi/honolulu/PHNL",
+  "toronto": "https://www.wunderground.com/weather/ca/toronto/CYYZ",
+  "vancouver": "https://www.wunderground.com/weather/ca/vancouver/CYVR",
+  "calgary": "https://www.wunderground.com/weather/ca/calgary/CYYC",
+  "montreal": "https://www.wunderground.com/weather/ca/montreal/CYUL",
+  "ottawa": "https://www.wunderground.com/weather/ca/ottawa/CYOW",
+  "london": "https://www.wunderground.com/weather/gb/london/EGLL",
+  "paris": "https://www.wunderground.com/weather/fr/paris/LFPG",
+  "berlin": "https://www.wunderground.com/weather/de/berlin/EDDB",
+  "munich": "https://www.wunderground.com/weather/de/munich/EDDM",
+  "rome": "https://www.wunderground.com/weather/it/rome/LIRF",
+  "madrid": "https://www.wunderground.com/weather/es/madrid/LEMD",
+  "amsterdam": "https://www.wunderground.com/weather/nl/amsterdam/EHAM",
+  "zurich": "https://www.wunderground.com/weather/ch/zurich/LSZH",
+  "moscow": "https://www.wunderground.com/weather/ru/moscow/UUEE",
+  "istanbul": "https://www.wunderground.com/weather/tr/istanbul/LTFM",
+  "ankara": "https://www.wunderground.com/weather/tr/ankara/LTAC",
+  "cairo": "https://www.wunderground.com/weather/eg/cairo/HECA",
+  "johannesburg": "https://www.wunderground.com/weather/za/johannesburg/FAOR",
+  "dubai": "https://www.wunderground.com/weather/ae/dubai/OMDB",
+  "seoul": "https://www.wunderground.com/weather/kr/seoul/RKSS",
+  "tokyo": "https://www.wunderground.com/weather/jp/tokyo/RJTT",
+  "beijing": "https://www.wunderground.com/weather/cn/beijing/ZBAA",
+  "shanghai": "https://www.wunderground.com/weather/cn/shanghai/ZSPD",
+  "hong kong": "https://www.wunderground.com/weather/hk/hong-kong/VHHH",
+  "singapore": "https://www.wunderground.com/weather/sg/singapore/WSSS",
+  "bangkok": "https://www.wunderground.com/weather/th/bangkok/VTBS",
+  "manila": "https://www.wunderground.com/weather/ph/manila/RPLL",
+  "jakarta": "https://www.wunderground.com/weather/id/jakarta/WIII",
+  "kuala lumpur": "https://www.wunderground.com/weather/my/kuala-lumpur/WMKK",
+  "phnom penh": "https://www.wunderground.com/weather/kh/phnom-penh/VDPP",
+  "ho chi minh": "https://www.wunderground.com/weather/vn/ho-chi-minh-city/VVTS",
+  "delhi": "https://www.wunderground.com/weather/in/delhi/VIDP",
+  "mumbai": "https://www.wunderground.com/weather/in/mumbai/VABB",
+  "lucknow": "https://www.wunderground.com/weather/in/lucknow/VILK",
+  "tel aviv": "https://www.wunderground.com/weather/il/tel-aviv/LLBG",
+  "ben gurion": "https://www.wunderground.com/weather/il/tel-aviv/LLBG",
+  "jerusalem": "https://www.wunderground.com/weather/il/jerusalem",
+  "haifa": "https://www.wunderground.com/weather/il/haifa",
+  "sydney": "https://www.wunderground.com/weather/au/sydney/YSSY",
+  "melbourne": "https://www.wunderground.com/weather/au/melbourne/YMML",
+  "brisbane": "https://www.wunderground.com/weather/au/brisbane/YBBN",
+  "perth": "https://www.wunderground.com/weather/au/perth/YPPH",
+  "auckland": "https://www.wunderground.com/weather/nz/auckland/NZAA",
+  "wellington": "https://www.wunderground.com/weather/nz/wellington/NZWN",
+  "sao paulo": "https://www.wunderground.com/weather/br/sao-paulo/SBGR",
+  "mexico city": "https://www.wunderground.com/weather/mx/mexico-city/MMMX",
+  "buenos aires": "https://www.wunderground.com/weather/ar/buenos-aires/SAEZ",
+  "lima": "https://www.wunderground.com/weather/pe/lima/SPJC",
+  "bogota": "https://www.wunderground.com/weather/co/bogota/SKBO",
+  "santiago": "https://www.wunderground.com/weather/cl/santiago/SCEL",
+};
+
+function getWuUrl(location: string): string | null {
+  const normalized = normalizeLocationKey(location);
+  const canonical = CITY_ALIASES[normalized] ?? normalized;
+
+  const direct = CITY_WU_URLS[canonical];
+  if (direct) return direct;
+
+  for (const [city, url] of Object.entries(CITY_WU_URLS)) {
+    if (canonical.includes(city) || city.includes(canonical)) return url;
+  }
+
+  return null;
+}
+
 function extractLinks(description: string): string[] {
   const urlRegex = /https?:\/\/[^\s)<>"\\]+/g;
   return description.match(urlRegex) || [];
@@ -143,6 +232,24 @@ function isTemperatureBet(title: string): boolean {
   return lower.includes("temperature") || lower.includes("°f") || lower.includes("°c") || lower.includes("highest") || lower.includes("temp ");
 }
 
+const MONTH_MAP: Record<string, string> = {
+  january: "01", february: "02", march: "03", april: "04",
+  may: "05", june: "06", july: "07", august: "08",
+  september: "09", october: "10", november: "11", december: "12",
+};
+
+function extractBetDateFromTitle(title: string): string | null {
+  const match = title.match(
+    /\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:\s*,?\s*(\d{4}))?\b/i
+  );
+  if (!match) return null;
+  const month = MONTH_MAP[match[1].toLowerCase()];
+  if (!month) return null;
+  const day = match[2].padStart(2, "0");
+  const year = match[3] || new Date().getFullYear().toString();
+  return `${year}-${month}-${day}`;
+}
+
 export interface TemperatureEvent {
   id: string;
   title: string;
@@ -151,6 +258,7 @@ export interface TemperatureEvent {
   timezone: string;
   endDate: string;
   createdAt: string;
+  betDate: string;
   image: string;
   slug: string;
   resolutionSource: string;
@@ -204,7 +312,9 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
       const location = extractLocation(title) || extractLocation(description);
       const timezone = getTimezone(location);
       const referenceLinks = extractLinks(description);
-      const resolutionSource = event.markets?.[0]?.resolutionSource || referenceLinks[0] || "";
+      const polymarketResSource = event.markets?.[0]?.resolutionSource || referenceLinks[0] || "";
+      const wuUrl = getWuUrl(location);
+      const resolutionSource = wuUrl || polymarketResSource;
 
       const markets: TemperatureMarket[] = (event.markets || [])
         .filter((m: any) => !m.closed)
@@ -234,6 +344,9 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
 
       const hasUnfulfilled = markets.some((m) => !m.isFulfilled);
 
+      const betDate = extractBetDateFromTitle(title)
+        || (event.endDate || event.createdAt || "").split("T")[0];
+
       return {
         id: event.id,
         title,
@@ -242,6 +355,7 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
         timezone,
         endDate: event.endDate,
         createdAt: event.createdAt,
+        betDate,
         image: event.image || event.icon || "",
         slug: event.slug || "",
         resolutionSource,

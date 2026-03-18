@@ -7,11 +7,12 @@ const corsHeaders = {
 };
 
 interface ResolutionResult {
+  currentTempF: number | null;
+  currentTempC: number | null;
   observedHighF: number | null;
   observedHighC: number | null;
   isObserved: boolean;
   source: string;
-  rawSnippet?: string;
   error?: string;
 }
 
@@ -19,63 +20,153 @@ function fToC(f: number): number {
   return (f - 32) * (5 / 9);
 }
 
+function round3(v: number): number {
+  return Math.round(v * 1000) / 1000;
+}
+
+function validTemp(v: number | null): number | null {
+  if (v === null || !Number.isFinite(v)) return null;
+  if (v < -60 || v > 160) return null;
+  return v;
+}
+
 async function scrapeWeatherUnderground(url: string): Promise<ResolutionResult> {
+  const empty: ResolutionResult = {
+    currentTempF: null, currentTempC: null,
+    observedHighF: null, observedHighC: null,
+    isObserved: false, source: url,
+  };
+
   try {
     const resp = await fetch(url, {
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
       },
     });
     if (!resp.ok) {
-      return { observedHighF: null, observedHighC: null, isObserved: false, source: url, error: `HTTP ${resp.status}` };
+      return { ...empty, error: `HTTP ${resp.status}` };
     }
     const html = await resp.text();
 
-    // Weather Underground embeds observation data in the page.
-    // Look for "Observed" or "History" markers and temperature values.
-    const hasObserved = /observed|observation|history/i.test(html);
-
-    // Try to extract high temperature from common WU patterns
-    // Pattern: "High: XX °F" or "Max Temperature" followed by a number
+    let currentF: number | null = null;
     let highF: number | null = null;
 
-    const maxTempMatch = html.match(
-      /(?:max(?:imum)?\s*temp(?:erature)?|high\s*(?:temp(?:erature)?)?)\s*[:=]?\s*([\d.]+)\s*°?\s*F/i
-    );
-    if (maxTempMatch) {
-      highF = parseFloat(maxTempMatch[1]);
+    // --- Try to extract from __NEXT_DATA__ JSON (WU uses Next.js) ---
+    const nextDataMatch = html.match(/<script\s+id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i);
+    if (nextDataMatch) {
+      try {
+        const nd = JSON.parse(nextDataMatch[1]);
+        const dig = (obj: any, ...keys: string[]): any => {
+          let cur = obj;
+          for (const k of keys) {
+            if (cur == null || typeof cur !== "object") return undefined;
+            cur = cur[k];
+          }
+          return cur;
+        };
+
+        const pages = dig(nd, "props", "pageProps");
+        if (pages) {
+          // Current observation
+          const obs = pages.currentObservation ?? pages.observation ?? pages.cu ?? undefined;
+          if (obs) {
+            currentF = validTemp(obs.temperature ?? obs.temp ?? obs.imperial?.temp ?? null);
+          }
+          // Forecast high
+          const fc = pages.forecast?.daily?.[0] ?? pages.forecast?.[0] ?? undefined;
+          if (fc) {
+            highF = validTemp(fc.temperatureMax ?? fc.high ?? fc.imperial?.temperatureMax ?? null);
+          }
+          // Almanac / history high
+          const alm = pages.almanac ?? pages.history ?? undefined;
+          if (alm) {
+            highF = highF ?? validTemp(alm.temperatureMax ?? alm.high ?? null);
+          }
+        }
+      } catch { /* JSON parse failed, continue with regex */ }
     }
 
+    // --- Try JSON-LD structured data ---
     if (highF === null) {
-      // Try JSON-LD or embedded JSON data
-      const jsonMatch = html.match(/"maxTemperature"\s*:\s*{\s*"value"\s*:\s*([\d.]+)/);
-      if (jsonMatch) highF = parseFloat(jsonMatch[1]);
+      const jsonldMatch = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi);
+      if (jsonldMatch) {
+        for (const block of jsonldMatch) {
+          const inner = block.replace(/<\/?script[^>]*>/gi, "");
+          try {
+            const ld = JSON.parse(inner);
+            const items = Array.isArray(ld) ? ld : [ld];
+            for (const item of items) {
+              if (item?.["@type"] === "WeatherForecast" || item?.mainEntity?.["@type"] === "WeatherForecast") {
+                const target = item?.mainEntity ?? item;
+                highF = highF ?? validTemp(target?.temperature?.maxValue ?? target?.highTemperature ?? null);
+                currentF = currentF ?? validTemp(target?.temperature?.value ?? null);
+              }
+            }
+          } catch { /* skip */ }
+        }
+      }
     }
 
+    // --- Regex fallback: extract high temp ---
+    // Pattern: "High 69 °F" or "High 69F" in forecast text
     if (highF === null) {
-      // Try the observation table pattern
-      const tableMatch = html.match(/High[\s\S]{0,200}?([\d]{2,3}(?:\.\d+)?)\s*°?\s*F/i);
-      if (tableMatch) highF = parseFloat(tableMatch[1]);
+      const highMatch = html.match(/High\s+(\d{1,3})\s*°?\s*F/i);
+      if (highMatch) highF = validTemp(parseFloat(highMatch[1]));
     }
 
-    // Extract a raw snippet around "observed" or "high" for debugging
-    const snippetMatch = html.match(/.{0,100}(?:observed|high\s*temp).{0,100}/i);
+    // Pattern: "Max Temperature" or "Maximum Temperature: XX"
+    if (highF === null) {
+      const maxMatch = html.match(/(?:max(?:imum)?\s*temp(?:erature)?)\s*[:=]?\s*(\d{1,3}(?:\.\d+)?)\s*°?\s*F/i);
+      if (maxMatch) highF = validTemp(parseFloat(maxMatch[1]));
+    }
+
+    // Pattern: "XX° | YY°" (high | low on summary line)
+    if (highF === null) {
+      const summaryMatch = html.match(/(\d{1,3})\s*°\s*\|\s*(\d{1,3})\s*°/);
+      if (summaryMatch) {
+        const a = parseFloat(summaryMatch[1]);
+        const b = parseFloat(summaryMatch[2]);
+        highF = validTemp(Math.max(a, b));
+      }
+    }
+
+    // --- Regex fallback: extract current temp ---
+    // Pattern: standalone "69 °F" followed by "like" (feels-like indicator)
+    if (currentF === null) {
+      const currentMatch = html.match(/(\d{1,3})\s*°\s*F\s*[\s\S]{0,20}like/i);
+      if (currentMatch) currentF = validTemp(parseFloat(currentMatch[1]));
+    }
+
+    // Pattern: large current temp display "XX °F" near station/report
+    if (currentF === null) {
+      const stationMatch = html.match(/Station\|Report[\s\S]{0,500}?(\d{1,3})\s*°?\s*F/i);
+      if (stationMatch) currentF = validTemp(parseFloat(stationMatch[1]));
+    }
+
+    // Generic: first temperature reading on the page
+    if (currentF === null) {
+      const genericMatch = html.match(/(\d{2,3})\s*°\s*F/);
+      if (genericMatch) currentF = validTemp(parseFloat(genericMatch[1]));
+    }
+
+    const hasObserved = /observed|observation|history|actual|recorded/i.test(html);
 
     return {
-      observedHighF: highF,
-      observedHighC: highF !== null ? Math.round(fToC(highF) * 1000) / 1000 : null,
-      isObserved: hasObserved && highF !== null,
+      currentTempF: currentF !== null ? round3(currentF) : null,
+      currentTempC: currentF !== null ? round3(fToC(currentF)) : null,
+      observedHighF: highF !== null ? round3(highF) : null,
+      observedHighC: highF !== null ? round3(fToC(highF)) : null,
+      isObserved: (hasObserved || highF !== null) && highF !== null,
       source: url,
-      rawSnippet: snippetMatch?.[0]?.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200),
     };
   } catch (e) {
     return {
-      observedHighF: null,
-      observedHighC: null,
-      isObserved: false,
-      source: url,
+      currentTempF: null, currentTempC: null,
+      observedHighF: null, observedHighC: null,
+      isObserved: false, source: url,
       error: e instanceof Error ? e.message : "Scrape failed",
     };
   }
@@ -86,33 +177,42 @@ async function scrapeGenericWeatherPage(url: string): Promise<ResolutionResult> 
     const resp = await fetch(url, {
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       },
     });
     if (!resp.ok) {
-      return { observedHighF: null, observedHighC: null, isObserved: false, source: url, error: `HTTP ${resp.status}` };
+      return {
+        currentTempF: null, currentTempC: null,
+        observedHighF: null, observedHighC: null,
+        isObserved: false, source: url, error: `HTTP ${resp.status}`,
+      };
     }
     const html = await resp.text();
 
     const hasObserved = /observed|observation|actual|recorded/i.test(html);
 
     let highF: number | null = null;
-    const highMatch = html.match(/(?:high|max(?:imum)?)\s*(?:temp(?:erature)?)?\s*[:=]?\s*([\d]{2,3}(?:\.\d+)?)\s*°?\s*F/i);
-    if (highMatch) highF = parseFloat(highMatch[1]);
+    const highMatch = html.match(/(?:high|max(?:imum)?)\s*(?:temp(?:erature)?)?\s*[:=]?\s*(\d{1,3}(?:\.\d+)?)\s*°?\s*F/i);
+    if (highMatch) highF = validTemp(parseFloat(highMatch[1]));
+
+    let currentF: number | null = null;
+    const curMatch = html.match(/(\d{2,3})\s*°\s*F/);
+    if (curMatch) currentF = validTemp(parseFloat(curMatch[1]));
 
     return {
-      observedHighF: highF,
-      observedHighC: highF !== null ? Math.round(fToC(highF) * 1000) / 1000 : null,
+      currentTempF: currentF !== null ? round3(currentF) : null,
+      currentTempC: currentF !== null ? round3(fToC(currentF)) : null,
+      observedHighF: highF !== null ? round3(highF) : null,
+      observedHighC: highF !== null ? round3(fToC(highF)) : null,
       isObserved: hasObserved && highF !== null,
       source: url,
     };
   } catch (e) {
     return {
-      observedHighF: null,
-      observedHighC: null,
-      isObserved: false,
-      source: url,
+      currentTempF: null, currentTempC: null,
+      observedHighF: null, observedHighC: null,
+      isObserved: false, source: url,
       error: e instanceof Error ? e.message : "Scrape failed",
     };
   }
