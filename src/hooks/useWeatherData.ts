@@ -404,7 +404,6 @@ export function useWeatherData(cities: string[]) {
 
       try {
         const data = await fetchAllOwmDirect(cities);
-        console.log("[weather] OWM direct success:", Object.keys(data).length, "cities", Object.keys(data));
         return data;
       } catch (err) {
         console.warn("[weather] OWM direct failed, falling back to edge function:", err);

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { usePolymarketData } from "@/hooks/usePolymarketData";
 import { useWeatherData } from "@/hooks/useWeatherData";
 import { useResolutionData } from "@/hooks/useResolutionData";
+import { useNoaaWuCompare } from "@/hooks/useNoaaWuCompare";
 import { useMarketPrices } from "@/hooks/useMarketPrices";
 import { useSavedBets } from "@/hooks/useSavedBets";
 import { usePaperTrading, type ImportedPaperTrade } from "@/hooks/usePaperTrading";
@@ -89,6 +90,7 @@ const TempAccount = () => {
   }, [events]);
 
   const { data: resolutionData } = useResolutionData(resolutionUrls);
+  const { data: noaaCompareByEvent, isLoading: noaaCompareLoading } = useNoaaWuCompare(events, resolutionData);
 
   const openMarketIds = useMemo(
     () => paper.openTrades.map(t => t.market_id),
@@ -260,6 +262,8 @@ const TempAccount = () => {
               betDate={event.betDate}
               onPlaceTrade={(market) => setTradeTarget({ market, event })}
               resolutionStatus={resolutionData?.[event.id]}
+              noaaCompare={noaaCompareByEvent?.[event.id]}
+              noaaCompareLoading={noaaCompareLoading}
               hideClocks={hideClocks}
             />
           );

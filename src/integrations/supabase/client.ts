@@ -5,13 +5,39 @@ import type { Database } from './types';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+/** Never persist auth — avoids reading/writing `sb-*` in localStorage (stale JWT → intermittent 401). */
+const noopAuthStorage = {
+  getItem: (_key: string) => null,
+  setItem: (_key: string, _value: string) => {},
+  removeItem: (_key: string) => {},
+};
+
+// Remove legacy GoTrue keys before createClient so nothing reads stale JWTs (noop storage alone
+// does not delete existing keys). Safe: this app does not use Supabase Auth sessions.
+if (typeof window !== "undefined" && window.localStorage) {
+  try {
+    for (const key of Object.keys(window.localStorage)) {
+      if (key.startsWith("sb-")) window.localStorage.removeItem(key);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
-    storage: localStorage,
-    persistSession: true,
-    autoRefreshToken: true,
-  }
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+    storage: noopAuthStorage,
+  },
+  global: {
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+  },
 });

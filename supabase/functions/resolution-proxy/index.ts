@@ -32,6 +32,15 @@ function validTemp(v: number | null): number | null {
   return v;
 }
 
+/** Reject obvious scrape errors: "current" far above same-day high (e.g. misparsed HTML field). */
+function reconcileCurrentVsHigh(currentF: number | null, highF: number | null): number | null {
+  if (currentF === null) return null;
+  if (highF === null) return currentF;
+  if (currentF > highF + 20) return null;
+  if (currentF > 115 && highF < 92) return null;
+  return currentF;
+}
+
 async function scrapeWeatherUnderground(url: string): Promise<ResolutionResult> {
   const empty: ResolutionResult = {
     currentTempF: null, currentTempC: null,
@@ -72,10 +81,26 @@ async function scrapeWeatherUnderground(url: string): Promise<ResolutionResult> 
 
         const pages = dig(nd, "props", "pageProps");
         if (pages) {
-          // Current observation
+          // Current observation — prefer explicit imperial °F; avoid raw `temperature` (wrong field/order on some pages)
           const obs = pages.currentObservation ?? pages.observation ?? pages.cu ?? undefined;
           if (obs) {
-            currentF = validTemp(obs.temperature ?? obs.temp ?? obs.imperial?.temp ?? null);
+            const imp = obs.imperial as Record<string, unknown> | undefined;
+            const met = obs.metric as Record<string, unknown> | undefined;
+            const tImp = typeof imp?.temp === "number" ? imp.temp : typeof imp?.temp === "string" ? parseFloat(String(imp.temp)) : NaN;
+            const tMetC = typeof met?.temp === "number" ? met.temp : typeof met?.temp === "string" ? parseFloat(String(met.temp)) : NaN;
+            if (Number.isFinite(tImp)) {
+              currentF = validTemp(tImp);
+            } else if (Number.isFinite(tMetC)) {
+              currentF = validTemp(tMetC * (9 / 5) + 32);
+            } else {
+              currentF = validTemp(
+                typeof obs.temp === "number"
+                  ? obs.temp
+                  : typeof obs.temperature === "number"
+                    ? obs.temperature
+                    : null,
+              );
+            }
           }
           // Forecast high
           const fc = pages.forecast?.daily?.[0] ?? pages.forecast?.[0] ?? undefined;
@@ -148,11 +173,15 @@ async function scrapeWeatherUnderground(url: string): Promise<ResolutionResult> 
       if (stationMatch) currentF = validTemp(parseFloat(stationMatch[1]));
     }
 
-    // Generic: first temperature reading on the page
+    // Last resort: "Current" / observation context only (avoid first random °F on the page = wrong value)
     if (currentF === null) {
-      const genericMatch = html.match(/(\d{2,3})\s*°\s*F/);
-      if (genericMatch) currentF = validTemp(parseFloat(genericMatch[1]));
+      const contextual = html.match(
+        /(?:current|observed|now|temperature at)[\s\S]{0,80}?(\d{1,3})\s*°\s*F/i,
+      );
+      if (contextual) currentF = validTemp(parseFloat(contextual[1]));
     }
+
+    currentF = reconcileCurrentVsHigh(currentF, highF);
 
     const hasObserved = /observed|observation|history|actual|recorded/i.test(html);
 
@@ -199,8 +228,16 @@ async function scrapeGenericWeatherPage(url: string): Promise<ResolutionResult> 
     if (highMatch) highF = validTemp(parseFloat(highMatch[1]));
 
     let currentF: number | null = null;
-    const curMatch = html.match(/(\d{2,3})\s*°\s*F/);
+    const curMatch = html.match(
+      /(?:current|now|observed)[\s\S]{0,120}?(\d{1,3})\s*°\s*F/i,
+    );
     if (curMatch) currentF = validTemp(parseFloat(curMatch[1]));
+    if (currentF === null) {
+      const loose = html.match(/(\d{2,3})\s*°\s*F/);
+      if (loose) currentF = validTemp(parseFloat(loose[1]));
+    }
+
+    currentF = reconcileCurrentVsHigh(currentF, highF);
 
     return {
       currentTempF: currentF !== null ? round3(currentF) : null,

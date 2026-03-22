@@ -16,7 +16,14 @@ async function fetchResolutionStatus(url: string): Promise<ResolutionStatus> {
   const fullUrl = `${getSupabaseFunctionUrl("resolution-proxy")}?url=${encodeURIComponent(url)}`;
   const response = await fetch(fullUrl, { headers: getSupabaseAuthHeaders() });
   if (!response.ok) throw new Error(`Resolution proxy error: ${response.status}`);
-  return response.json();
+  const rawText = await response.text();
+  let data: ResolutionStatus;
+  try {
+    data = (rawText ? JSON.parse(rawText) : {}) as ResolutionStatus;
+  } catch (parseErr) {
+    throw parseErr instanceof Error ? parseErr : new Error("resolution-proxy: invalid JSON");
+  }
+  return data;
 }
 
 export function useResolutionData(resolutionUrls: Record<string, string>) {

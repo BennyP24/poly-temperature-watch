@@ -2,6 +2,8 @@ import { useMemo, useState, useEffect, useCallback } from "react";
 import { usePolymarketData } from "@/hooks/usePolymarketData";
 import { useMarketPrices } from "@/hooks/useMarketPrices";
 import { useWeatherData } from "@/hooks/useWeatherData";
+import { useResolutionData } from "@/hooks/useResolutionData";
+import { useNoaaWuCompare } from "@/hooks/useNoaaWuCompare";
 import { useSavedBets } from "@/hooks/useSavedBets";
 import { usePaperTrading, type ImportedPaperTrade } from "@/hooks/usePaperTrading";
 import { useMicroAutoTrade } from "@/hooks/useMicroAutoTrade";
@@ -81,6 +83,17 @@ const Index = () => {
   }, [events]);
 
   const { data: weatherData } = useWeatherData(cities);
+
+  const resolutionUrls = useMemo(() => {
+    const urls: Record<string, string> = {};
+    for (const event of events ?? []) {
+      if (event.resolutionSource) urls[event.id] = event.resolutionSource;
+    }
+    return urls;
+  }, [events]);
+
+  const { data: resolutionData } = useResolutionData(resolutionUrls);
+  const { data: noaaCompareByEvent, isLoading: noaaCompareLoading } = useNoaaWuCompare(events, resolutionData);
 
   const openMarketIds = useMemo(() => {
     const ids = new Set<string>();
@@ -229,6 +242,9 @@ const Index = () => {
               isObservation={event.isObs}
               betDate={event.betDate}
               onPlaceTrade={(market) => setTradeTarget({ market, event })}
+              resolutionStatus={resolutionData?.[event.id]}
+              noaaCompare={noaaCompareByEvent?.[event.id]}
+              noaaCompareLoading={noaaCompareLoading}
             />
           );
         })}

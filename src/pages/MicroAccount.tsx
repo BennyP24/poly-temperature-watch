@@ -2,6 +2,8 @@ import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import { usePolymarketData } from "@/hooks/usePolymarketData";
 import { useWeatherData } from "@/hooks/useWeatherData";
+import { useResolutionData } from "@/hooks/useResolutionData";
+import { useNoaaWuCompare } from "@/hooks/useNoaaWuCompare";
 import { useMarketPrices } from "@/hooks/useMarketPrices";
 import { usePaperTrading } from "@/hooks/usePaperTrading";
 import { useMicroAutoTrade } from "@/hooks/useMicroAutoTrade";
@@ -163,6 +165,9 @@ const MicroAccount = () => {
               refNumber={refCounter}
               isObservation={event.isObs}
               betDate={event.betDate}
+              resolutionStatus={resolutionData?.[event.id]}
+              noaaCompare={noaaCompareByEvent?.[event.id]}
+              noaaCompareLoading={noaaCompareLoading}
             />
           );
         })}

@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { TemperatureEvent, TemperatureMarket } from "@/lib/polymarket";
 import type { CityWeather, DateWeather } from "@/hooks/useWeatherData";
 import type { ResolutionStatus } from "@/hooks/useResolutionData";
+import type { NoaaWuCompareResponse } from "@/lib/noaaWuCompare";
 import { SignalBadge, type SignalStatus } from "./SignalBadge";
 import { ClockDisplay } from "./ClockDisplay";
 import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, Check, Copy, Zap, ShieldCheck } from "lucide-react";
@@ -19,7 +20,21 @@ interface TemperatureBetCardProps {
   betDate?: string;
   onPlaceTrade?: (market: TemperatureMarket) => void;
   resolutionStatus?: ResolutionStatus;
+  /** NOAA/NWS vs WU cross-check from `noaa-wu-compare` (when WU observed high exists). */
+  noaaCompare?: NoaaWuCompareResponse | null;
+  noaaCompareLoading?: boolean;
   hideClocks?: boolean;
+}
+
+function noaaSourceShortLabel(source: NoaaWuCompareResponse["source"]): string {
+  switch (source) {
+    case "nws":
+      return "NWS";
+    case "metar_lemd":
+      return "METAR LEMD";
+    case "none":
+      return "none";
+  }
 }
 
 function parseTempRange(title: string): [number, number] | null {
@@ -79,7 +94,7 @@ function deriveSignalStatus(
   return "live";
 }
 
-export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, isMicroSaved, onToggleMicroSave, refNumber, isObservation, betDate, onPlaceTrade, resolutionStatus, hideClocks }: TemperatureBetCardProps) {
+export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, isMicroSaved, onToggleMicroSave, refNumber, isObservation, betDate, onPlaceTrade, resolutionStatus, noaaCompare, noaaCompareLoading, hideClocks }: TemperatureBetCardProps) {
   const dateWeather = getDateWeather(weather, betDate);
 
   // WU (resolution source) takes priority; Open-Meteo is fallback
@@ -240,6 +255,22 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
             <span className="ml-auto text-[8px] uppercase tracking-widest text-blue-400 font-bold">Future</span>
           )}
         </div>
+
+        {tempSource === "wu" && noaaCompareLoading && !noaaCompare && (
+          <div className="text-[8px] text-muted-foreground mb-0.5">NOAA cross-check…</div>
+        )}
+        {tempSource === "wu" && noaaCompare && (
+          <div className="text-[8px] text-cyan-400/90 font-semibold tracking-wide mb-0.5">
+            NOAA ref: {noaaSourceShortLabel(noaaCompare.source)}
+            {noaaCompare.noaaDailyMaxC != null && noaaCompare.differenceC != null && (
+              <span className="text-muted-foreground font-normal">
+                {" "}
+                · max {noaaCompare.noaaDailyMaxC}°C vs WU (Δ {noaaCompare.differenceC > 0 ? "+" : ""}
+                {noaaCompare.differenceC}°C)
+              </span>
+            )}
+          </div>
+        )}
 
         {tempSource === "estimate" && hasAnyTempData && (
           <div className="text-center text-[8px] text-orange-400/80 -mt-1 mb-1">
