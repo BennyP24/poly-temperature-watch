@@ -12,7 +12,7 @@ import { PortfolioHeader } from "@/components/PortfolioHeader";
 import { PaperTradeDialog } from "@/components/PaperTradeDialog";
 import { PaperTradesSummary } from "@/components/PaperTradesSummary";
 import { useToast } from "@/components/ui/use-toast";
-import { normalizeMarketId, type TemperatureEvent, type TemperatureMarket } from "@/lib/polymarket";
+import { isAsianLocation, normalizeMarketId, type TemperatureEvent, type TemperatureMarket } from "@/lib/polymarket";
 import { Thermometer, RefreshCw, AlertTriangle, ArrowLeft, Briefcase } from "lucide-react";
 
 type TabKey = "ready" | "asian" | "usa" | "europe" | "other" | "trades";
@@ -24,14 +24,6 @@ const TABS: { key: TabKey; label: string; short: string }[] = [
   { key: "europe", label: "Europe", short: "Europe" },
   { key: "other", label: "Other", short: "Other" },
   { key: "trades", label: "Trades", short: "Trades" },
-];
-
-const ASIAN_CITIES = [
-  "seoul", "tokyo", "bangkok", "ho chi minh", "phnom penh", "singapore",
-  "hong kong", "manila", "jakarta", "kuala lumpur", "beijing", "shanghai",
-  "delhi", "mumbai", "dubai", "tel aviv", "ben gurion", "jerusalem", "haifa",
-  "lucknow", "ankara", "istanbul", "cairo", "taipei", "hanoi", "colombo",
-  "karachi", "dhaka", "riyadh", "doha", "muscat", "tehran",
 ];
 
 const USA_CITIES = [
@@ -53,7 +45,7 @@ const EUROPE_CITIES = [
 
 function getRegion(location: string): "asian" | "usa" | "europe" | "other" {
   const lower = location.toLowerCase().trim();
-  if (ASIAN_CITIES.some(c => lower.includes(c))) return "asian";
+  if (isAsianLocation(location)) return "asian";
   if (USA_CITIES.some(c => lower.includes(c))) return "usa";
   if (EUROPE_CITIES.some(c => lower.includes(c))) return "europe";
   return "other";

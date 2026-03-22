@@ -234,6 +234,20 @@ function isTemperatureBet(title: string): boolean {
   return lower.includes("temperature") || lower.includes("°f") || lower.includes("°c") || lower.includes("highest") || lower.includes("temp ");
 }
 
+/** Substrings merged from Index + TempAccount; used for Asian tabs and fetch rules. */
+const ASIAN_LOCATION_KEYWORDS = [
+  "seoul", "phnom penh", "bangkok", "ho chi minh", "tokyo", "beijing", "shanghai",
+  "hong kong", "singapore", "manila", "jakarta", "kuala lumpur", "delhi", "mumbai", "dubai",
+  "tel aviv", "ben gurion", "jerusalem", "haifa", "lucknow", "ankara", "istanbul", "cairo",
+  "taipei", "hanoi", "colombo", "karachi", "dhaka", "riyadh", "doha", "muscat", "tehran",
+];
+
+/** True if `location` matches an Asian city/region used for UI tabs and market visibility. */
+export function isAsianLocation(location: string): boolean {
+  const lower = location.toLowerCase().trim();
+  return ASIAN_LOCATION_KEYWORDS.some((c) => lower.includes(c));
+}
+
 const MONTH_MAP: Record<string, string> = {
   january: "01", february: "02", march: "03", april: "04",
   may: "05", june: "06", july: "07", august: "08",
@@ -318,6 +332,8 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
       const wuUrl = getWuUrl(location);
       const resolutionSource = wuUrl || polymarketResSource;
 
+      const asian = isAsianLocation(location);
+
       const markets: TemperatureMarket[] = (event.markets || [])
         .filter((m: any) => !m.closed)
         .map((m: any) => {
@@ -344,10 +360,14 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
           };
         });
 
-      const hasUnfulfilled = markets.some((m) => !m.isFulfilled);
+      const hasUnfulfilled = asian
+        ? markets.length > 0
+        : markets.some((m) => !m.isFulfilled);
 
       const betDate = extractBetDateFromTitle(title)
         || (event.endDate || event.createdAt || "").split("T")[0];
+
+      const marketsForEvent = asian ? markets : markets.filter((m) => !m.isFulfilled);
 
       return {
         id: event.id,
@@ -366,7 +386,7 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
         liquidity: event.liquidity || event.liquidityClob || 0,
         polymarketUrl: `https://polymarket.com/event/${event.slug}`,
         isNew: new Date(event.createdAt) > oneDayAgo,
-        markets: markets.filter((m) => !m.isFulfilled),
+        markets: marketsForEvent,
         priorityRank: isPriorityCity(location),
         _hasUnfulfilled: hasUnfulfilled,
       };

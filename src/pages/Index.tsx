@@ -12,10 +12,8 @@ import { PaperTradeDialog } from "@/components/PaperTradeDialog";
 import { PaperTradesSummary } from "@/components/PaperTradesSummary";
 import { MicroTradesSummary } from "@/components/MicroTradesSummary";
 import { useToast } from "@/components/ui/use-toast";
-import type { TemperatureEvent, TemperatureMarket } from "@/lib/polymarket";
+import { isAsianLocation, type TemperatureEvent, type TemperatureMarket } from "@/lib/polymarket";
 import { Thermometer, RefreshCw, AlertTriangle, Zap } from "lucide-react";
-
-const ASIAN_CITIES = ["seoul", "phnom penh", "bangkok", "ho chi minh", "tokyo", "beijing", "shanghai", "hong kong", "singapore", "manila", "jakarta", "kuala lumpur", "delhi", "mumbai", "dubai"];
 
 type TabKey = "asian-past" | "asian-future" | "other-past" | "other-future" | "saved" | "trades" | "micro";
 
@@ -34,11 +32,6 @@ interface SessionBackupFile {
   exportedAt: string;
   paperTrading: { balance: number; trades: ImportedPaperTrade[] };
   savedBetIds: string[];
-}
-
-function isAsianCity(location: string): boolean {
-  const lower = location.toLowerCase();
-  return ASIAN_CITIES.some(c => lower.includes(c));
 }
 
 function getBetDate(event: TemperatureEvent): string {
@@ -118,7 +111,7 @@ const Index = () => {
     for (const event of events) {
       const betDate = getBetDate(event);
       const isObs = betDate <= todayStr;
-      const asian = isAsianCity(event.location);
+      const asian = isAsianLocation(event.location);
       const enriched = { ...event, betDate, isObs };
 
       if (isSaved(event.id)) result.saved.push(enriched);
