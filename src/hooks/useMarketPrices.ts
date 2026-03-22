@@ -65,11 +65,23 @@ function readGammaBestBid(m: Record<string, unknown>): number | null {
   return Number.isFinite(bid) ? bid : null;
 }
 
-interface OrderBookSummary {
+/** CLOB snapshot for one outcome token (from polymarket-proxy books). */
+export interface OrderBookSummary {
   asset_id?: string;
   /** Bid side only — used for sell / mark. */
   bids?: { price: string; size: string }[];
   asks?: { price: string; size: string }[];
+}
+
+/** YES and NO token books for a market (normalized market id key). */
+export interface MarketSideBooks {
+  yesBook: OrderBookSummary | null;
+  noBook: OrderBookSummary | null;
+}
+
+export interface MarketPricesPayload {
+  prices: Map<string, MarketPrice>;
+  orderBooksByMarketId: Map<string, MarketSideBooks>;
 }
 
 async function fetchClobBooks(tokenIds: string[]): Promise<Map<string, OrderBookSummary>> {
@@ -100,10 +112,12 @@ async function fetchClobBooks(tokenIds: string[]): Promise<Map<string, OrderBook
   return map;
 }
 
-async function fetchMarketPrices(marketIds: string[]): Promise<Map<string, MarketPrice>> {
+async function fetchMarketPrices(marketIds: string[]): Promise<MarketPricesPayload> {
   /** Gamma rejects comma-separated `id` (422). Use repeated `id=` params and dedupe. */
   const uniqueIds = [...new Set(marketIds.map((id) => normalizeMarketId(id)))].filter(Boolean);
-  if (uniqueIds.length === 0) return new Map();
+  if (uniqueIds.length === 0) {
+    return { prices: new Map(), orderBooksByMarketId: new Map() };
+  }
 
   const params = new URLSearchParams();
   for (const id of uniqueIds) {
@@ -127,6 +141,7 @@ async function fetchMarketPrices(marketIds: string[]): Promise<Map<string, Marke
   }
 
   const result = new Map<string, MarketPrice>();
+  const orderBooksByMarketId = new Map<string, MarketSideBooks>();
   const markets = data;
 
   const tokenIds: string[] = [];
@@ -171,6 +186,7 @@ async function fetchMarketPrices(marketIds: string[]): Promise<Map<string, Marke
         yesPrice: gammaBestBid ?? fallbackYes,
         noPrice: fallbackNo,
       });
+      orderBooksByMarketId.set(mid, { yesBook: null, noBook: null });
     }
   }
 
@@ -187,6 +203,10 @@ async function fetchMarketPrices(marketIds: string[]): Promise<Map<string, Marke
   for (const row of marketTokens) {
     const yesBook = booksByToken.get(row.yesTok);
     const noBook = booksByToken.get(row.noTok);
+    orderBooksByMarketId.set(row.marketId, {
+      yesBook: yesBook ?? null,
+      noBook: noBook ?? null,
+    });
     const yesBid = highestBidFromBook(yesBook);
     const noBid = highestBidFromBook(noBook);
     const fromBooks = [yesBid, row.gammaBestBid].filter((x): x is number => x != null && Number.isFinite(x));
@@ -198,7 +218,7 @@ async function fetchMarketPrices(marketIds: string[]): Promise<Map<string, Marke
     });
   }
 
-  return result;
+  return { prices: result, orderBooksByMarketId };
 }
 
 /** Poll open-position sell/bid prices at most every 2s (Sell @, P&L marks). */
@@ -209,7 +229,7 @@ export function useMarketPrices(marketIds: string[]) {
   const sortedIds = [...new Set(marketIds.map((id) => normalizeMarketId(id)))].filter(Boolean).sort();
   const cacheKey = sortedIds.join(",");
 
-  const query = useQuery<Map<string, MarketPrice>>({
+  const query = useQuery<MarketPricesPayload>({
     queryKey: ["market-prices", cacheKey],
     queryFn: () => fetchMarketPrices(sortedIds),
     enabled: sortedIds.length > 0,

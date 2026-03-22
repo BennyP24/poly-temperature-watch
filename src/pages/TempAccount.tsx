@@ -102,7 +102,9 @@ const TempAccount = () => {
     () => paper.openTrades.map(t => t.market_id),
     [paper.openTrades]
   );
-  const { data: realTimePrices } = useMarketPrices(openMarketIds);
+  const { data: marketPricesData } = useMarketPrices(openMarketIds);
+  const realTimePrices = marketPricesData?.prices;
+  const orderBooksByMarketId = marketPricesData?.orderBooksByMarketId;
 
   const newSignals = useMemo(() => events?.filter(e => e.isNew).length ?? 0, [events]);
   const lastRefresh = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
@@ -306,7 +308,7 @@ const TempAccount = () => {
 
         {/* Portfolio */}
         <div className="mb-3 sm:mb-6">
-          <PortfolioHeader balance={paper.balance} openTrades={paper.openTrades} closedTrades={paper.closedTrades} totalProfit={paper.totalProfit} events={events} realTimePrices={realTimePrices} label="Paper" />
+          <PortfolioHeader balance={paper.balance} openTrades={paper.openTrades} closedTrades={paper.closedTrades} totalProfit={paper.totalProfit} events={events} realTimePrices={realTimePrices ?? undefined} label="Paper" />
         </div>
 
         {/* Status Bar */}
@@ -357,7 +359,8 @@ const TempAccount = () => {
           <PaperTradesSummary
             balance={paper.balance} totalProfit={paper.totalProfit}
             openTrades={paper.openTrades} closedTrades={paper.closedTrades}
-            events={events} realTimePrices={realTimePrices}
+            events={events} realTimePrices={realTimePrices ?? undefined}
+            orderBooksByMarketId={orderBooksByMarketId}
             onReset={paper.resetBalance} onResolve={paper.resolveTrade}
             onSell={paper.sellTrade} onDownloadSession={handleDownloadSession} onUploadSession={handleUploadSession}
           />

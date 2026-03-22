@@ -93,7 +93,9 @@ const MicroAccount = () => {
     () => micro.openTrades.map(t => t.market_id),
     [micro.openTrades]
   );
-  const { data: realTimePrices } = useMarketPrices(openMarketIds);
+  const { data: marketPricesData } = useMarketPrices(openMarketIds);
+  const realTimePrices = marketPricesData?.prices;
+  const orderBooksByMarketId = marketPricesData?.orderBooksByMarketId;
 
   const newSignals = useMemo(() => events?.filter(e => e.isNew).length ?? 0, [events]);
   const lastRefresh = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
@@ -205,7 +207,7 @@ const MicroAccount = () => {
 
         {/* Portfolio */}
         <div className="mb-4 sm:mb-6">
-          <PortfolioHeader balance={micro.balance} openTrades={micro.openTrades} closedTrades={micro.closedTrades} totalProfit={micro.totalProfit} events={events} realTimePrices={realTimePrices} label="Micro" />
+          <PortfolioHeader balance={micro.balance} openTrades={micro.openTrades} closedTrades={micro.closedTrades} totalProfit={micro.totalProfit} events={events} realTimePrices={realTimePrices ?? undefined} label="Micro" />
         </div>
 
         {/* Status Bar */}
@@ -259,7 +261,8 @@ const MicroAccount = () => {
           <MicroTradesSummary
             balance={micro.balance} totalProfit={micro.totalProfit}
             openTrades={micro.openTrades} closedTrades={micro.closedTrades}
-            events={events} realTimePrices={realTimePrices}
+            events={events} realTimePrices={realTimePrices ?? undefined}
+            orderBooksByMarketId={orderBooksByMarketId}
             onReset={micro.resetBalance} onResolve={micro.resolveTrade}
             onSell={micro.sellTrade} autoTradeEnabled={microAutoEnabled} onToggleAutoTrade={toggleMicroAuto}
             midnightCountdown={midnightBoost}

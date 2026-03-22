@@ -204,11 +204,15 @@ export function usePaperTrading(prefix = "paper") {
   );
 
   const sellTrade = useCallback(
-    async (tradeId: string, bidPrice: number) => {
-      if (!accountId || bidPrice <= 0 || bidPrice >= 1) return false;
+    async (tradeId: string, bidPrice: number, options?: { payoutUsd?: number }) => {
       const trade = trades.find((t) => t.id === tradeId);
-      if (!trade || trade.status !== "open") return false;
-      const payout = trade.shares * bidPrice;
+      if (!accountId || !trade || trade.status !== "open") return false;
+      const payout =
+        options?.payoutUsd != null && Number.isFinite(options.payoutUsd) && options.payoutUsd >= 0
+          ? options.payoutUsd
+          : trade.shares * bidPrice;
+      if (!Number.isFinite(payout) || payout < 0) return false;
+      if (options?.payoutUsd == null && (bidPrice <= 0 || bidPrice >= 1)) return false;
       const profit = payout - trade.amount;
       const nextBalance = balance + payout;
       const nowIso = new Date().toISOString();

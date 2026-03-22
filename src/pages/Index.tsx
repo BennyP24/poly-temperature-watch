@@ -95,7 +95,9 @@ const Index = () => {
     for (const t of micro.openTrades) ids.add(t.market_id);
     return Array.from(ids);
   }, [paper.openTrades, micro.openTrades]);
-  const { data: realTimePrices } = useMarketPrices(openMarketIds);
+  const { data: marketPricesData } = useMarketPrices(openMarketIds);
+  const realTimePrices = marketPricesData?.prices;
+  const orderBooksByMarketId = marketPricesData?.orderBooksByMarketId;
 
   const newSignals = useMemo(() => events?.filter(e => e.isNew).length ?? 0, [events]);
   const lastRefresh = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
@@ -270,8 +272,8 @@ const Index = () => {
 
         {/* Portfolio Balances */}
         <div className="mb-4 sm:mb-6 space-y-2">
-          <PortfolioHeader balance={paper.balance} openTrades={paper.openTrades} closedTrades={paper.closedTrades} totalProfit={paper.totalProfit} events={events} realTimePrices={realTimePrices} label="Paper" />
-          <PortfolioHeader balance={micro.balance} openTrades={micro.openTrades} closedTrades={micro.closedTrades} totalProfit={micro.totalProfit} events={events} realTimePrices={realTimePrices} label="Micro" />
+          <PortfolioHeader balance={paper.balance} openTrades={paper.openTrades} closedTrades={paper.closedTrades} totalProfit={paper.totalProfit} events={events} realTimePrices={realTimePrices ?? undefined} label="Paper" />
+          <PortfolioHeader balance={micro.balance} openTrades={micro.openTrades} closedTrades={micro.closedTrades} totalProfit={micro.totalProfit} events={events} realTimePrices={realTimePrices ?? undefined} label="Micro" />
         </div>
 
         {/* Status Bar */}
@@ -322,7 +324,8 @@ const Index = () => {
           <PaperTradesSummary
             balance={paper.balance} totalProfit={paper.totalProfit}
             openTrades={paper.openTrades} closedTrades={paper.closedTrades}
-            events={events} realTimePrices={realTimePrices}
+            events={events} realTimePrices={realTimePrices ?? undefined}
+            orderBooksByMarketId={orderBooksByMarketId}
             onReset={paper.resetBalance} onResolve={paper.resolveTrade}
             onSell={paper.sellTrade} onDownloadSession={handleDownloadSession} onUploadSession={handleUploadSession}
           />
@@ -332,7 +335,8 @@ const Index = () => {
           <MicroTradesSummary
             balance={micro.balance} totalProfit={micro.totalProfit}
             openTrades={micro.openTrades} closedTrades={micro.closedTrades}
-            events={events} realTimePrices={realTimePrices}
+            events={events} realTimePrices={realTimePrices ?? undefined}
+            orderBooksByMarketId={orderBooksByMarketId}
             onReset={micro.resetBalance} onResolve={micro.resolveTrade}
             onSell={micro.sellTrade} autoTradeEnabled={microAutoEnabled} onToggleAutoTrade={toggleMicroAuto}
           />

@@ -1,7 +1,8 @@
 import { useMemo, useRef, type ChangeEvent } from "react";
 import type { PaperTrade } from "@/hooks/usePaperTrading";
 import { normalizeMarketId, type TemperatureEvent } from "@/lib/polymarket";
-import type { MarketPrice } from "@/hooks/useMarketPrices";
+import type { MarketPrice, MarketSideBooks } from "@/hooks/useMarketPrices";
+import { OrderBookExitPreview, computeSellWalkForTrade } from "@/components/OrderBookExitPreview";
 import {
   DollarSign, RotateCcw, TrendingUp, TrendingDown, ExternalLink,
   Upload, Download, HandCoins, Zap,
@@ -14,9 +15,10 @@ interface MicroTradesSummaryProps {
   closedTrades: PaperTrade[];
   events?: TemperatureEvent[];
   realTimePrices?: Map<string, MarketPrice>;
+  orderBooksByMarketId?: Map<string, MarketSideBooks>;
   onReset: () => void;
   onResolve: (tradeId: string, won: boolean) => void | Promise<void>;
-  onSell: (tradeId: string, bidPrice: number) => void | Promise<boolean>;
+  onSell: (tradeId: string, bidPrice: number, options?: { payoutUsd?: number }) => void | Promise<boolean>;
   autoTradeEnabled: boolean;
   onToggleAutoTrade: () => void;
   midnightCountdown?: { isBoostActive: boolean; secondsUntilMidnight: number };
@@ -25,6 +27,7 @@ interface MicroTradesSummaryProps {
 export function MicroTradesSummary({
   balance, totalProfit, openTrades, closedTrades, events,
   realTimePrices,
+  orderBooksByMarketId,
   onReset, onResolve, onSell, autoTradeEnabled, onToggleAutoTrade,
   midnightCountdown,
 }: MicroTradesSummaryProps) {
@@ -127,8 +130,17 @@ export function MicroTradesSummary({
             {openTrades.map((trade) => {
               const market = marketLookup.get(normalizeMarketId(trade.market_id));
               const bidPrice = market ? (trade.side === "yes" ? market.yesPrice : market.noPrice) : null;
-              const markValue = bidPrice === null ? null : trade.shares * bidPrice;
+              const sides = orderBooksByMarketId?.get(normalizeMarketId(trade.market_id));
+              const { walk, hasBook } = computeSellWalkForTrade(trade, sides);
+              const markValue =
+                hasBook && walk.fills.length > 0
+                  ? walk.totalUsd
+                  : bidPrice === null
+                    ? null
+                    : trade.shares * bidPrice;
               const liveProfit = markValue === null ? null : markValue - trade.amount;
+              const refPrice = bidPrice ?? walk.fills[0]?.price ?? 0;
+              const canSell = (bidPrice !== null && bidPrice > 0) || (hasBook && walk.fills.length > 0 && refPrice > 0);
 
               return (
                 <div key={trade.id} className="rounded-sm bg-muted/30 px-2 py-2">
@@ -162,14 +174,24 @@ export function MicroTradesSummary({
                     </span>
                   </div>
 
+                  <OrderBookExitPreview trade={trade} sides={sides} />
+
                   <div className="flex flex-wrap items-center gap-1.5">
                     <button
-                      onClick={() => bidPrice !== null && onSell(trade.id, bidPrice)}
-                      disabled={bidPrice === null}
+                      onClick={() => {
+                        if (!canSell) return;
+                        const payoutUsd = hasBook ? walk.totalUsd : undefined;
+                        void onSell(trade.id, refPrice, payoutUsd !== undefined ? { payoutUsd } : undefined);
+                      }}
+                      disabled={!canSell}
                       className="flex items-center gap-1 rounded-sm border border-border bg-secondary px-1.5 py-0.5 text-[9px] font-bold text-secondary-foreground hover:bg-secondary/80 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <HandCoins className="h-2.5 w-2.5" />
-                      {bidPrice === null ? "SELL" : `SELL @ ${(bidPrice * 100).toFixed(1)}¢`}
+                      {!canSell
+                        ? "SELL"
+                        : hasBook && walk.vwap != null
+                          ? `SELL ~${(walk.vwap * 100).toFixed(1)}¢ VWAP`
+                          : `SELL @ ${(refPrice * 100).toFixed(1)}¢`}
                     </button>
                     <button onClick={() => onResolve(trade.id, true)} className="rounded-sm bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold text-primary hover:bg-primary/25">WON</button>
                     <button onClick={() => onResolve(trade.id, false)} className="rounded-sm bg-destructive/15 px-1.5 py-0.5 text-[9px] font-bold text-destructive hover:bg-destructive/25">LOST</button>
