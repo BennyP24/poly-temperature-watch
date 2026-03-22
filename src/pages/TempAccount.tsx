@@ -12,7 +12,7 @@ import { PortfolioHeader } from "@/components/PortfolioHeader";
 import { PaperTradeDialog } from "@/components/PaperTradeDialog";
 import { PaperTradesSummary } from "@/components/PaperTradesSummary";
 import { useToast } from "@/components/ui/use-toast";
-import type { TemperatureEvent, TemperatureMarket } from "@/lib/polymarket";
+import { normalizeMarketId, type TemperatureEvent, type TemperatureMarket } from "@/lib/polymarket";
 import { Thermometer, RefreshCw, AlertTriangle, ArrowLeft, Briefcase } from "lucide-react";
 
 type TabKey = "ready" | "asian" | "usa" | "europe" | "other" | "trades";
@@ -116,12 +116,12 @@ const TempAccount = () => {
     const allMarkets = new Map<string, { yesPrice: number; noPrice: number; closed: boolean }>();
     for (const event of events) {
       for (const m of event.markets) {
-        allMarkets.set(m.id, { yesPrice: m.yesPrice, noPrice: m.noPrice, closed: m.closed });
+        allMarkets.set(normalizeMarketId(m.id), { yesPrice: m.yesPrice, noPrice: m.noPrice, closed: m.closed });
       }
     }
     for (const trade of paper.openTrades) {
       if (autoSettleRef.current.has(trade.id)) continue;
-      const market = allMarkets.get(trade.market_id);
+      const market = allMarkets.get(normalizeMarketId(trade.market_id));
       if (!market) continue;
       const yesResolved = market.yesPrice >= 0.95;
       const noResolved = market.noPrice >= 0.95;
@@ -306,7 +306,7 @@ const TempAccount = () => {
 
         {/* Portfolio */}
         <div className="mb-3 sm:mb-6">
-          <PortfolioHeader balance={paper.balance} openTrades={paper.openTrades} closedTrades={paper.closedTrades} totalProfit={paper.totalProfit} events={events} label="Paper" />
+          <PortfolioHeader balance={paper.balance} openTrades={paper.openTrades} closedTrades={paper.closedTrades} totalProfit={paper.totalProfit} events={events} realTimePrices={realTimePrices} label="Paper" />
         </div>
 
         {/* Status Bar */}

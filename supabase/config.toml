@@ -1,1 +1,5 @@
 project_id = "nsfefijiwzpoxlcdozxl"
+
+# Allow browser preflight (OPTIONS) without a user JWT — client uses anon key on GET/HEAD only.
+[functions.resolution-proxy]
+verify_jwt = false

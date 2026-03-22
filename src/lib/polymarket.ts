@@ -1,4 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
+import { getSupabaseFunctionUrl } from "@/lib/supabaseFunctions";
+import { getSupabaseAuthHeaders } from "@/lib/supabaseAuth";
 
 const CITY_TIMEZONES: Record<string, string> = {
   "munich": "Europe/Berlin",
@@ -271,6 +273,11 @@ export interface TemperatureEvent {
   priorityRank: number;
 }
 
+/** Gamma JSON often has numeric `id`; paper trades use string `market_id`. Use for Map keys / lookups. */
+export function normalizeMarketId(id: string | number): string {
+  return String(id);
+}
+
 export interface TemperatureMarket {
   id: string;
   question: string;
@@ -285,13 +292,8 @@ export interface TemperatureMarket {
 
 export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
   const response = await fetch(
-    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/polymarket-proxy?endpoint=events&params=${encodeURIComponent("active=true&closed=false&limit=200&order=createdAt&ascending=false&tag_slug=weather")}`,
-    {
-      headers: {
-        "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-        "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-      },
-    }
+    `${getSupabaseFunctionUrl("polymarket-proxy")}?endpoint=events&params=${encodeURIComponent("active=true&closed=false&limit=200&order=createdAt&ascending=false&tag_slug=weather")}`,
+    { headers: getSupabaseAuthHeaders() }
   );
 
   if (!response.ok) throw new Error(`Proxy error: ${response.status}`);

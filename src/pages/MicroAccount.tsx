@@ -11,7 +11,7 @@ import { StatusBar } from "@/components/StatusBar";
 import { TemperatureBetCard } from "@/components/TemperatureBetCard";
 import { PortfolioHeader } from "@/components/PortfolioHeader";
 import { MicroTradesSummary } from "@/components/MicroTradesSummary";
-import type { TemperatureEvent } from "@/lib/polymarket";
+import { normalizeMarketId, type TemperatureEvent } from "@/lib/polymarket";
 import { Zap, RefreshCw, AlertTriangle, ArrowLeft, Thermometer } from "lucide-react";
 
 type TabKey = "active" | "upcoming" | "history";
@@ -68,7 +68,7 @@ const MicroAccount = () => {
     }
     for (const trade of micro.openTrades) {
       if (autoSettleRef.current.has(trade.id)) continue;
-      const market = allMarkets.get(trade.market_id);
+      const market = allMarkets.get(normalizeMarketId(trade.market_id));
       if (!market) continue;
       const yesResolved = market.yesPrice >= 0.95;
       const noResolved = market.noPrice >= 0.95;
@@ -205,7 +205,7 @@ const MicroAccount = () => {
 
         {/* Portfolio */}
         <div className="mb-4 sm:mb-6">
-          <PortfolioHeader balance={micro.balance} openTrades={micro.openTrades} closedTrades={micro.closedTrades} totalProfit={micro.totalProfit} events={events} label="Micro" />
+          <PortfolioHeader balance={micro.balance} openTrades={micro.openTrades} closedTrades={micro.closedTrades} totalProfit={micro.totalProfit} events={events} realTimePrices={realTimePrices} label="Micro" />
         </div>
 
         {/* Status Bar */}
@@ -268,7 +268,7 @@ const MicroAccount = () => {
 
         {/* Footer */}
         <div className="mt-6 sm:mt-8 border-t border-border pt-3 sm:pt-4 text-center text-[9px] sm:text-[10px] uppercase tracking-widest text-muted-foreground">
-          Polymarket Gamma API · Polls every {midnightBoost.isBoostActive ? "2s (BOOST)" : "5s"} · Auto-buy ≤3¢ YES · $25 per position
+          Polymarket Gamma API · Open positions ~2s · Auto-buy ≤3¢ YES · $25 per position
         </div>
       </div>
     </div>

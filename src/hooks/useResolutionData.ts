@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import { getSupabaseFunctionUrl } from "@/lib/supabaseFunctions";
+import { getSupabaseAuthHeaders } from "@/lib/supabaseAuth";
 
 export interface ResolutionStatus {
   currentTempF: number | null;
@@ -11,15 +13,8 @@ export interface ResolutionStatus {
 }
 
 async function fetchResolutionStatus(url: string): Promise<ResolutionStatus> {
-  const response = await fetch(
-    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/resolution-proxy?url=${encodeURIComponent(url)}`,
-    {
-      headers: {
-        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-      },
-    }
-  );
+  const fullUrl = `${getSupabaseFunctionUrl("resolution-proxy")}?url=${encodeURIComponent(url)}`;
+  const response = await fetch(fullUrl, { headers: getSupabaseAuthHeaders() });
   if (!response.ok) throw new Error(`Resolution proxy error: ${response.status}`);
   return response.json();
 }
@@ -32,21 +27,6 @@ export function useResolutionData(resolutionUrls: Record<string, string>) {
     queryKey: ["resolution-data", cacheKey],
     queryFn: async () => {
       if (urlEntries.length === 0) return {};
-
-      const probeUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/resolution-proxy?url=${encodeURIComponent("https://www.wunderground.com")}`;
-      try {
-        const probe = await fetch(probeUrl, {
-          method: "HEAD",
-          headers: {
-            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
-        });
-        if (!probe.ok) throw new Error("probe failed");
-      } catch {
-        console.warn("[resolution] Supabase edge function unreachable, skipping batch");
-        return {};
-      }
 
       const results: Record<string, ResolutionStatus> = {};
       const batches: Promise<void>[] = [];

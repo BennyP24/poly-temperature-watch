@@ -1,6 +1,6 @@
 import { useMemo, useRef, type ChangeEvent } from "react";
 import type { PaperTrade } from "@/hooks/usePaperTrading";
-import type { TemperatureEvent } from "@/lib/polymarket";
+import { normalizeMarketId, type TemperatureEvent } from "@/lib/polymarket";
 import type { MarketPrice } from "@/hooks/useMarketPrices";
 import {
   DollarSign,
@@ -50,8 +50,8 @@ export function PaperTradesSummary({
 
     for (const event of events ?? []) {
       for (const market of event.markets) {
-        const rtPrice = realTimePrices?.get(market.id);
-        lookup.set(market.id, {
+        const rtPrice = realTimePrices?.get(normalizeMarketId(market.id));
+        lookup.set(normalizeMarketId(market.id), {
           yesPrice: rtPrice?.yesPrice ?? market.yesPrice,
           noPrice: rtPrice?.noPrice ?? market.noPrice,
           url: event.polymarketUrl,
@@ -59,8 +59,21 @@ export function PaperTradesSummary({
       }
     }
 
+    for (const trade of openTrades) {
+      const tid = normalizeMarketId(trade.market_id);
+      if (lookup.has(tid)) continue;
+      const rt = realTimePrices?.get(tid);
+      if (rt) {
+        lookup.set(tid, {
+          yesPrice: rt.yesPrice,
+          noPrice: rt.noPrice,
+          url: trade.bet_url ?? "",
+        });
+      }
+    }
+
     return lookup;
-  }, [events, realTimePrices]);
+  }, [events, realTimePrices, openTrades]);
 
   const handleUploadInput = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -132,10 +145,13 @@ export function PaperTradesSummary({
 
       {openTrades.length > 0 && (
         <div className="rounded-md border border-border bg-card p-3">
-          <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-foreground">Open Trades ({openTrades.length})</h4>
+          <h4 className="mb-1 text-xs font-bold uppercase tracking-wider text-foreground">Open Trades ({openTrades.length})</h4>
+          <p className="mb-2 text-[9px] leading-snug text-muted-foreground">
+            Sell @ uses the best bid (what you get when selling). The Buy Yes price on Polymarket is the ask, often a bit higher.
+          </p>
           <div className="space-y-1.5">
             {openTrades.map((trade) => {
-              const market = marketLookup.get(trade.market_id);
+              const market = marketLookup.get(normalizeMarketId(trade.market_id));
               const bidPrice = market
                 ? trade.side === "yes"
                   ? market.yesPrice
@@ -172,7 +188,7 @@ export function PaperTradesSummary({
                   <div className="mb-2 grid grid-cols-2 gap-1 text-[10px] text-muted-foreground sm:grid-cols-5">
                     <span>Stake: <span className="tabular-nums text-foreground">${trade.amount.toFixed(2)}</span></span>
                     <span>Entry: <span className="tabular-nums text-foreground">{(trade.price * 100).toFixed(1)}¢</span></span>
-                    <span>
+                    <span title="Best bid (sell side). Polymarket Buy Yes is the ask.">
                       Sell @: <span className="tabular-nums text-foreground">{bidPrice === null ? "--" : `${(bidPrice * 100).toFixed(1)}¢`}</span>
                     </span>
                     <span className="sm:col-span-2">

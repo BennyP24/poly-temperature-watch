@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { PaperTrade } from "@/hooks/usePaperTrading";
-import type { TemperatureEvent } from "@/lib/polymarket";
+import type { MarketPrice } from "@/hooks/useMarketPrices";
+import { normalizeMarketId, type TemperatureEvent } from "@/lib/polymarket";
 import { DollarSign, TrendingUp, TrendingDown, Briefcase, Zap } from "lucide-react";
 
 interface PortfolioHeaderProps {
@@ -9,24 +10,29 @@ interface PortfolioHeaderProps {
   closedTrades: PaperTrade[];
   totalProfit: number;
   events?: TemperatureEvent[];
+  realTimePrices?: Map<string, MarketPrice>;
   label?: string;
 }
 
-export function PortfolioHeader({ balance, openTrades, closedTrades, totalProfit, events, label = "Paper" }: PortfolioHeaderProps) {
+export function PortfolioHeader({ balance, openTrades, closedTrades, totalProfit, events, realTimePrices, label = "Paper" }: PortfolioHeaderProps) {
   const { portfolioValue, unrealizedPnL } = useMemo(() => {
     let markToMarket = 0;
     for (const trade of openTrades) {
       let currentPrice: number | null = null;
-      if (events) {
+      const rt = realTimePrices?.get(normalizeMarketId(trade.market_id));
+      if (rt) {
+        currentPrice = trade.side === "yes" ? rt.yesPrice : rt.noPrice;
+      }
+      if (currentPrice === null && events) {
         for (const event of events) {
-          const market = event.markets.find(m => m.id === trade.market_id);
+          const market = event.markets.find((m) => normalizeMarketId(m.id) === normalizeMarketId(trade.market_id));
           if (market) { currentPrice = trade.side === "yes" ? market.yesPrice : market.noPrice; break; }
         }
       }
       markToMarket += trade.shares * (currentPrice ?? trade.price);
     }
     return { portfolioValue: balance + markToMarket, unrealizedPnL: markToMarket - openTrades.reduce((s, t) => s + t.amount, 0) };
-  }, [balance, openTrades, events]);
+  }, [balance, openTrades, events, realTimePrices]);
 
   const totalPnL = totalProfit + unrealizedPnL;
   const wins = closedTrades.filter(t => t.status === "won").length;

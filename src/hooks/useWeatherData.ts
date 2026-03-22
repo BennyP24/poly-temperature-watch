@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import { getSupabaseFunctionUrl } from "@/lib/supabaseFunctions";
+import { getSupabaseAuthHeaders } from "@/lib/supabaseAuth";
 
 export interface HourlyTemp {
   hour: number;
@@ -79,6 +81,10 @@ const CITY_COORDS: Record<string, { lat: number; lon: number; tz: string }> = {
   "hong kong": { lat: 22.32, lon: 114.17, tz: "Asia/Hong_Kong" },
   beijing: { lat: 39.9, lon: 116.4, tz: "Asia/Shanghai" },
   shanghai: { lat: 31.23, lon: 121.47, tz: "Asia/Shanghai" },
+  chengdu: { lat: 30.67, lon: 104.07, tz: "Asia/Shanghai" },
+  chongqing: { lat: 29.56, lon: 106.55, tz: "Asia/Shanghai" },
+  shenzhen: { lat: 22.54, lon: 114.06, tz: "Asia/Shanghai" },
+  wuhan: { lat: 30.59, lon: 114.31, tz: "Asia/Shanghai" },
   "san francisco": { lat: 37.77, lon: -122.42, tz: "America/Los_Angeles" },
   boston: { lat: 42.36, lon: -71.06, tz: "America/New_York" },
   atlanta: { lat: 33.75, lon: -84.39, tz: "America/New_York" },
@@ -171,6 +177,12 @@ function resolveCoords(city: string) {
     (k) => canonical.includes(k) || k.includes(canonical),
   );
   return fallbackKey ? CITY_COORDS[fallbackKey] : undefined;
+}
+
+/** Placeholder locations from extractLocation when city cannot be parsed — not worth console noise. */
+function isUnknownLocationLabel(city: string): boolean {
+  const n = normalizeCityKey(city);
+  return n === "" || n === "unknown" || n === "unknown city";
 }
 
 function processOwmData(
@@ -329,7 +341,9 @@ async function fetchAllOwmDirect(
       try {
         const coords = resolveCoords(city);
         if (!coords) {
-          console.warn(`[weather] Unknown city: ${city}`);
+          if (!isUnknownLocationLabel(city)) {
+            console.warn(`[weather] Unknown city: ${city}`);
+          }
           return;
         }
 
@@ -373,13 +387,8 @@ async function fetchAllViaEdgeFunction(
   cities: string[],
 ): Promise<Record<string, CityWeather>> {
   const response = await fetch(
-    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/weather-data?cities=${encodeURIComponent(cities.join(","))}`,
-    {
-      headers: {
-        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-      },
-    },
+    `${getSupabaseFunctionUrl("weather-data")}?cities=${encodeURIComponent(cities.join(","))}`,
+    { headers: getSupabaseAuthHeaders() },
   );
   if (!response.ok) throw new Error(`Edge function ${response.status}`);
   return response.json();
