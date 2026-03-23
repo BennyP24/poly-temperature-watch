@@ -367,7 +367,8 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
       const betDate = extractBetDateFromTitle(title)
         || (event.endDate || event.createdAt || "").split("T")[0];
 
-      const marketsForEvent = asian ? markets : markets.filter((m) => !m.isFulfilled);
+      // All open outcomes (match Polymarket event page); resolved/near-1¢ bins stay visible.
+      const marketsForEvent = markets;
 
       return {
         id: event.id,

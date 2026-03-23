@@ -14,6 +14,7 @@ import { PaperTradeDialog } from "@/components/PaperTradeDialog";
 import { PaperTradesSummary } from "@/components/PaperTradesSummary";
 import { MicroTradesSummary } from "@/components/MicroTradesSummary";
 import { useToast } from "@/components/ui/use-toast";
+import { compareEventsByBetDateAscending } from "@/lib/betTimeWindow";
 import { isAsianLocation, type TemperatureEvent, type TemperatureMarket } from "@/lib/polymarket";
 import { Thermometer, RefreshCw, AlertTriangle, Zap } from "lucide-react";
 
@@ -37,7 +38,7 @@ interface SessionBackupFile {
 }
 
 function getBetDate(event: TemperatureEvent): string {
-  return (event.endDate || event.createdAt || "").split("T")[0];
+  return event.betDate || (event.endDate || event.createdAt || "").split("T")[0];
 }
 
 const MICRO_AUTO_KEY = "micro-auto-enabled";
@@ -118,9 +119,6 @@ const Index = () => {
       "asian-past": [], "asian-future": [], "other-past": [], "other-future": [], saved: [], trades: [], micro: [],
     };
 
-    const twoDaysAgo = new Date(now.getTime() - 2 * 86400000).toISOString().split("T")[0];
-    const twoDaysAhead = new Date(now.getTime() + 2 * 86400000).toISOString().split("T")[0];
-
     for (const event of events) {
       const betDate = getBetDate(event);
       const isObs = betDate <= todayStr;
@@ -130,23 +128,16 @@ const Index = () => {
       if (isSaved(event.id)) result.saved.push(enriched);
 
       if (isObs) {
-        if (betDate >= twoDaysAgo) {
-          if (asian) result["asian-past"].push(enriched);
-          else result["other-past"].push(enriched);
-        }
+        if (asian) result["asian-past"].push(enriched);
+        else result["other-past"].push(enriched);
       } else {
-        if (betDate <= twoDaysAhead) {
-          if (asian) result["asian-future"].push(enriched);
-          else result["other-future"].push(enriched);
-        }
+        if (asian) result["asian-future"].push(enriched);
+        else result["other-future"].push(enriched);
       }
     }
 
     const sortEvents = (arr: typeof result["asian-past"]) =>
-      arr.sort((a, b) => {
-        if (a.priorityRank !== b.priorityRank) return a.priorityRank - b.priorityRank;
-        return a.betDate.localeCompare(b.betDate);
-      });
+      arr.sort(compareEventsByBetDateAscending);
 
     sortEvents(result["asian-past"]);
     sortEvents(result["asian-future"]);

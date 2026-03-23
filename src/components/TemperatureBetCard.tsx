@@ -341,70 +341,85 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
         </div>
       )}
 
-      {/* Markets / Odds */}
-      <div className="mb-2 sm:mb-3 space-y-1 overflow-x-auto">
-        <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-1 sm:gap-x-2 items-center text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground px-1.5 sm:px-2 min-w-[340px]">
-          <span>Range</span>
-          <span className="text-center w-14 sm:w-16">YES</span>
-          <span className="text-center w-10 sm:w-12">+%</span>
-          <span className="text-center w-14 sm:w-16">NO</span>
-          <span className="text-center w-10 sm:w-12">+%</span>
+      {/* Markets / Odds — full outcome list (sorted by implied YES, like Polymarket) */}
+      <div className="mb-2 sm:mb-3 space-y-1.5 overflow-x-auto">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] gap-x-2 sm:gap-x-3 items-end text-[10px] sm:text-xs uppercase tracking-wider text-muted-foreground px-2 min-w-[min(100%,380px)]">
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <span>Outcome</span>
+            {onPlaceTrade && (
+              <span className="normal-case text-[8px] sm:text-[9px] font-normal text-muted-foreground/90 hidden sm:inline truncate">
+                Tap row to trade
+              </span>
+            )}
+          </div>
+          <span className="text-center w-[4.25rem] sm:w-20 shrink-0">YES</span>
+          <span className="text-center w-12 sm:w-14 shrink-0">+%</span>
+          <span className="text-center w-[4.25rem] sm:w-20 shrink-0">NO</span>
+          <span className="text-center w-12 sm:w-14 shrink-0">+%</span>
         </div>
-        <div className="max-h-48 sm:max-h-56 space-y-0.5 overflow-y-auto">
-          {event.markets
+        <div className="space-y-1 max-h-[min(70vh,28rem)] overflow-y-auto pr-0.5">
+          {[...event.markets]
             .sort((a, b) => b.yesPrice - a.yesPrice)
             .map((m) => {
               const correct = showResolutionTemp && isCorrectAnswer(m.groupItemTitle, wuHigh);
               const yesProfitPct = m.yesPrice > 0 ? ((1 - m.yesPrice) / m.yesPrice) * 100 : 0;
               const noProfitPct = m.noPrice > 0 ? ((1 - m.noPrice) / m.noPrice) * 100 : 0;
+              const label = m.groupItemTitle || m.question || "—";
 
-              return (
-                <div
-                  key={m.id}
-                  className={`grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-1 sm:gap-x-2 items-center rounded-sm px-1.5 sm:px-2 py-1 sm:py-1.5 transition-colors min-w-[340px] ${
-                    correct
-                      ? "bg-emerald-500/20 border-2 border-emerald-500/70 shadow-[0_0_8px_hsl(142_71%_45%/0.3)]"
-                      : "bg-muted/30"
-                  }`}
-                >
-                  <div className="flex items-center gap-1 min-w-0">
-                    {correct && <span className="text-[9px] font-bold text-emerald-400">✓</span>}
-                    <span className={`text-[10px] sm:text-xs truncate ${correct ? "font-semibold text-emerald-400" : "text-foreground"}`}>
-                      {m.groupItemTitle}
+              const rowClass = `grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] gap-x-2 sm:gap-x-3 items-center rounded-md px-2 py-2 sm:py-2.5 min-w-[min(100%,380px)] border ${
+                correct
+                  ? "bg-emerald-500/20 border-emerald-500/70 shadow-[0_0_8px_hsl(142_71%_45%/0.25)]"
+                  : "bg-muted/30 border-transparent"
+              }`;
+
+              const cells = (
+                <>
+                  <div className="flex items-start gap-2 min-w-0 py-0.5">
+                    {correct && <span className="text-xs sm:text-sm font-bold text-emerald-400 shrink-0 leading-snug">✓</span>}
+                    <span
+                      className={`text-sm sm:text-base leading-snug break-words ${correct ? "font-semibold text-emerald-400" : "font-medium text-foreground"}`}
+                    >
+                      {label}
                     </span>
                   </div>
-                  <span className={`w-14 sm:w-16 text-center text-[10px] sm:text-xs font-semibold tabular-nums ${correct ? "text-emerald-400" : "text-[hsl(var(--signal-resolved))]"}`}>
+                  <span className={`w-[4.25rem] sm:w-20 text-center text-sm sm:text-base font-semibold tabular-nums shrink-0 ${correct ? "text-emerald-400" : "text-[hsl(var(--signal-resolved))]"}`}>
                     {(m.yesPrice * 100).toFixed(1)}¢
                   </span>
-                  <span className="w-10 sm:w-12 text-center text-[10px] sm:text-xs tabular-nums text-[hsl(var(--signal-resolved))]">
+                  <span className="w-12 sm:w-14 text-center text-sm sm:text-base tabular-nums text-[hsl(var(--signal-resolved))] shrink-0">
                     +{yesProfitPct.toFixed(0)}%
                   </span>
-                  <span className="w-14 sm:w-16 text-center text-[10px] sm:text-xs font-semibold tabular-nums text-destructive">
+                  <span className="w-[4.25rem] sm:w-20 text-center text-sm sm:text-base font-semibold tabular-nums text-destructive shrink-0">
                     {(m.noPrice * 100).toFixed(1)}¢
                   </span>
-                  <span className="w-10 sm:w-12 text-center text-[10px] sm:text-xs tabular-nums text-destructive">
+                  <span className="w-12 sm:w-14 text-center text-sm sm:text-base tabular-nums text-destructive shrink-0">
                     +{noProfitPct.toFixed(0)}%
                   </span>
+                </>
+              );
+
+              if (onPlaceTrade) {
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => onPlaceTrade(m)}
+                    title="Paper trade this outcome"
+                    className={`${rowClass} w-full text-left cursor-pointer transition-colors hover:bg-muted/40 ${
+                      correct ? "hover:bg-emerald-500/25" : "hover:border-border"
+                    }`}
+                  >
+                    {cells}
+                  </button>
+                );
+              }
+
+              return (
+                <div key={m.id} className={rowClass}>
+                  {cells}
                 </div>
               );
             })}
         </div>
-        {onPlaceTrade && event.markets.length > 0 && (
-          <div className="flex flex-wrap gap-1 pt-1">
-            {event.markets
-              .sort((a, b) => b.yesPrice - a.yesPrice)
-              .slice(0, 5)
-              .map(m => (
-                <button
-                  key={m.id}
-                  onClick={() => onPlaceTrade(m)}
-                  className="rounded-sm bg-primary/20 px-1.5 py-0.5 text-[9px] font-bold text-primary hover:bg-primary/30 transition-colors"
-                >
-                  BET {m.groupItemTitle}
-                </button>
-              ))}
-          </div>
-        )}
       </div>
 
       {/* Volume & End date */}

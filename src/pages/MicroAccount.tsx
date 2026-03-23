@@ -13,6 +13,7 @@ import { StatusBar } from "@/components/StatusBar";
 import { TemperatureBetCard } from "@/components/TemperatureBetCard";
 import { PortfolioHeader } from "@/components/PortfolioHeader";
 import { MicroTradesSummary } from "@/components/MicroTradesSummary";
+import { compareEventsByBetDateAscending } from "@/lib/betTimeWindow";
 import { normalizeMarketId, type TemperatureEvent } from "@/lib/polymarket";
 import { Zap, RefreshCw, AlertTriangle, ArrowLeft, Thermometer } from "lucide-react";
 
@@ -20,7 +21,7 @@ type TabKey = "active" | "upcoming" | "history";
 
 const TABS: { key: TabKey; label: string; short: string }[] = [
   { key: "active", label: "Active Positions", short: "Active" },
-  { key: "upcoming", label: "Upcoming (48h)", short: "Upcoming" },
+  { key: "upcoming", label: "Upcoming", short: "Upcoming" },
   { key: "history", label: "Trade History", short: "History" },
 ];
 
@@ -90,6 +91,17 @@ const MicroAccount = () => {
 
   const { data: weatherData } = useWeatherData(cities);
 
+  const resolutionUrls = useMemo(() => {
+    const urls: Record<string, string> = {};
+    for (const event of events ?? []) {
+      if (event.resolutionSource) urls[event.id] = event.resolutionSource;
+    }
+    return urls;
+  }, [events]);
+
+  const { data: resolutionData } = useResolutionData(resolutionUrls);
+  const { data: noaaCompareByEvent, isLoading: noaaCompareLoading } = useNoaaWuCompare(events, resolutionData);
+
   // Real-time BID for micro positions
   const openMarketIds = useMemo(
     () => micro.openTrades.map(t => t.market_id),
@@ -111,23 +123,20 @@ const MicroAccount = () => {
     return ids;
   }, [micro.openTrades]);
 
-  // Upcoming: future bets within 48 hours
   const upcoming = useMemo(() => {
     if (!events) return [];
-    const twoDaysAhead = new Date(now.getTime() + 2 * 86400000).toLocaleDateString("en-CA");
     return events
-      .filter(e => e.betDate > todayStr && e.betDate <= twoDaysAhead)
-      .map(e => ({ ...e, betDate: e.betDate, isObs: false }))
-      .sort((a, b) => a.betDate.localeCompare(b.betDate));
-  }, [events, todayStr, now]);
+      .filter(e => e.betDate > todayStr)
+      .map(e => ({ ...e, betDate: e.betDate, isObs: false as const }))
+      .sort(compareEventsByBetDateAscending);
+  }, [events, todayStr]);
 
-  // Active position events
   const activeEvents = useMemo(() => {
     if (!events) return [];
     return events
       .filter(e => activeEventIds.has(e.id))
       .map(e => ({ ...e, betDate: e.betDate, isObs: e.betDate <= todayStr }))
-      .sort((a, b) => a.betDate.localeCompare(b.betDate));
+      .sort(compareEventsByBetDateAscending);
   }, [events, activeEventIds, todayStr]);
 
   const tabCounts = useMemo(() => ({

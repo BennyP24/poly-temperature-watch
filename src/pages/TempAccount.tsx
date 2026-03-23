@@ -13,6 +13,10 @@ import { PortfolioHeader } from "@/components/PortfolioHeader";
 import { PaperTradeDialog } from "@/components/PaperTradeDialog";
 import { PaperTradesSummary } from "@/components/PaperTradesSummary";
 import { useToast } from "@/components/ui/use-toast";
+import {
+  compareEventsByBetDateAscending,
+  compareReadyEventsByDateThenCloseTime,
+} from "@/lib/betTimeWindow";
 import { isAsianLocation, normalizeMarketId, type TemperatureEvent, type TemperatureMarket } from "@/lib/polymarket";
 import { Thermometer, RefreshCw, AlertTriangle, ArrowLeft, Briefcase } from "lucide-react";
 
@@ -167,17 +171,11 @@ const TempAccount = () => {
       }
     }
 
-    const sortByPriority = (arr: EnrichedEvent[]) =>
-      arr.sort((a, b) => {
-        if (a.priorityRank !== b.priorityRank) return a.priorityRank - b.priorityRank;
-        return a.betDate.localeCompare(b.betDate);
-      });
-
-    sortByPriority(result.ready);
-    sortByPriority(result.asian);
-    sortByPriority(result.usa);
-    sortByPriority(result.europe);
-    sortByPriority(result.other);
+    result.ready.sort(compareReadyEventsByDateThenCloseTime);
+    result.asian.sort(compareEventsByBetDateAscending);
+    result.usa.sort(compareEventsByBetDateAscending);
+    result.europe.sort(compareEventsByBetDateAscending);
+    result.other.sort(compareEventsByBetDateAscending);
 
     return result;
   }, [events, todayStr, weatherData, resolutionData]);
