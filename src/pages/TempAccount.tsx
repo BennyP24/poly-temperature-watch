@@ -21,6 +21,7 @@ import {
   compareReadyEventsByDateThenCloseTime,
 } from "@/lib/betTimeWindow";
 import { isAsianLocation, normalizeMarketId, type TemperatureEvent, type TemperatureMarket } from "@/lib/polymarket";
+import { getBetDateYmd, resolutionSourceForWuScrape } from "@/lib/wundergroundUrls";
 import { Thermometer, RefreshCw, AlertTriangle, ArrowLeft, Briefcase } from "lucide-react";
 
 type TabKey = "ready" | "asian" | "usa" | "europe" | "other" | "trades";
@@ -100,13 +101,18 @@ const TempAccount = () => {
 
   const { data: weatherData } = useWeatherData(cities);
 
+  const now = useMemo(() => new Date(), [dataUpdatedAt]);
+  const todayStr = now.toLocaleDateString("en-CA");
+
   const resolutionUrls = useMemo(() => {
     const urls: Record<string, string> = {};
     for (const event of events ?? []) {
-      if (event.resolutionSource) urls[event.id] = event.resolutionSource;
+      if (!event.resolutionSource) continue;
+      const betDate = getBetDateYmd(event);
+      urls[event.id] = resolutionSourceForWuScrape(event.resolutionSource, betDate, event.timezone, now);
     }
     return urls;
-  }, [events]);
+  }, [events, now]);
 
   const { data: resolutionData } = useResolutionData(resolutionUrls);
   const { data: noaaCompareByEvent, isLoading: noaaCompareLoading } = useNoaaWuCompare(events, resolutionData);
@@ -121,9 +127,6 @@ const TempAccount = () => {
 
   const newSignals = useMemo(() => events?.filter(e => e.isNew).length ?? 0, [events]);
   const lastRefresh = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
-
-  const now = useMemo(() => new Date(), [dataUpdatedAt]);
-  const todayStr = now.toLocaleDateString("en-CA");
 
   // Auto-settle open trades when market resolves (Part 8)
   useEffect(() => {

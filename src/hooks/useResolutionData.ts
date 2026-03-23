@@ -10,6 +10,8 @@ export interface ResolutionStatus {
   isObserved: boolean;
   source: string;
   error?: string;
+  /** Set when WU high is from embedded JSON/heuristics (not guaranteed official daily max). */
+  highIsEstimate?: boolean;
 }
 
 async function fetchResolutionStatus(url: string): Promise<ResolutionStatus> {
@@ -28,10 +30,16 @@ async function fetchResolutionStatus(url: string): Promise<ResolutionStatus> {
 
 export function useResolutionData(resolutionUrls: Record<string, string>) {
   const urlEntries = Object.entries(resolutionUrls).filter(([, url]) => url.length > 0);
-  const cacheKey = urlEntries.map(([id]) => id).sort().join(",");
+  // Must include URLs: past bets switch /weather/ → /history/daily/.../date/... — same event IDs
+  // would otherwise reuse cached resolution rows and look like "nothing changed".
+  const cacheKey = urlEntries
+    .map(([id, url]) => `${id}:${url}`)
+    .sort()
+    .join("|");
 
   return useQuery<Record<string, ResolutionStatus>>({
-    queryKey: ["resolution-data", cacheKey],
+    // Bump when resolution-proxy semantics change so clients drop stale cached highs.
+    queryKey: ["resolution-data", "v4-primary-calendar-block", cacheKey],
     queryFn: async () => {
       if (urlEntries.length === 0) return {};
 

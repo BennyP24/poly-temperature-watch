@@ -3,6 +3,7 @@ import type { TemperatureEvent, TemperatureMarket } from "@/lib/polymarket";
 import type { CityWeather, DateWeather } from "@/hooks/useWeatherData";
 import type { ResolutionStatus } from "@/hooks/useResolutionData";
 import type { NoaaWuCompareResponse } from "@/lib/noaaWuCompare";
+import { wuResolutionDisplayUrl } from "@/lib/wundergroundUrls";
 import { SignalBadge, type SignalStatus } from "./SignalBadge";
 import { ClockDisplay } from "./ClockDisplay";
 import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, Check, Copy, Zap, ShieldCheck } from "lucide-react";
@@ -47,21 +48,47 @@ function parseTempRange(title: string): [number, number] | null {
   return null;
 }
 
-function isCorrectAnswer(title: string, highTempF: number | null): boolean {
-  if (highTempF === null) return false;
-  const rounded = Math.round(highTempF);
-  const range = parseTempRange(title);
-  if (!range) return false;
-  return rounded >= range[0] && rounded <= range[1];
-}
-
 function fToC(f: number): number {
   return (f - 32) * 5 / 9;
+}
+
+/**
+ * High column only: round °C by fractional part — (0, 0.5] → integer °C, >0.5 → next integer °C;
+ * then derive °F from that rounded °C so both match.
+ */
+function roundCelsiusHighForDisplay(c: number): number {
+  const sign = c >= 0 ? 1 : -1;
+  const abs = Math.abs(c);
+  const int = Math.floor(abs);
+  const frac = abs - int;
+  if (frac <= 0.5 + 1e-9) return sign * int;
+  return sign * (int + 1);
+}
+
+function highTempFToDisplayPair(f: number): { fDisp: number; cDisp: number } {
+  const c = fToC(f);
+  const cRounded = roundCelsiusHighForDisplay(c);
+  const fDisp = cRounded * (9 / 5) + 32;
+  return { fDisp, cDisp: cRounded };
 }
 
 function formatTemp(f: number | null): string {
   if (f === null) return "--";
   return `${f.toFixed(1)}°F / ${fToC(f).toFixed(1)}°C`;
+}
+
+function formatHighTemp(f: number | null): string {
+  if (f === null) return "--";
+  const { fDisp, cDisp } = highTempFToDisplayPair(f);
+  return `${fDisp.toFixed(1)}°F / ${cDisp.toFixed(1)}°C`;
+}
+
+function isCorrectAnswer(title: string, highTempF: number | null): boolean {
+  if (highTempF === null) return false;
+  const rounded = Math.round(highTempFToDisplayPair(highTempF).fDisp);
+  const range = parseTempRange(title);
+  if (!range) return false;
+  return rounded >= range[0] && rounded <= range[1];
 }
 
 function formatHour(hour: number): string {
@@ -96,6 +123,10 @@ function deriveSignalStatus(
 
 export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, isMicroSaved, onToggleMicroSave, refNumber, isObservation, betDate, onPlaceTrade, resolutionStatus, noaaCompare, noaaCompareLoading, hideClocks }: TemperatureBetCardProps) {
   const dateWeather = getDateWeather(weather, betDate);
+
+  const resolutionDisplayUrl = event.resolutionSource
+    ? wuResolutionDisplayUrl(event.resolutionSource, event.betDate, event.timezone)
+    : "";
 
   // WU (resolution source) takes priority; Open-Meteo is fallback
   const wuCurrent = resolutionStatus?.currentTempF ?? null;
@@ -241,7 +272,12 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
       <div className="mb-2 sm:mb-3 rounded-sm border border-border bg-muted/50 p-2 sm:p-3 space-y-2">
         <div className="flex items-center gap-1 mb-1">
           {tempSource === "wu" ? (
-            <span className="text-[8px] uppercase tracking-widest text-emerald-400 font-bold">Resolution Source (WU)</span>
+            <span className="text-[8px] uppercase tracking-widest text-emerald-400 font-bold">
+              Resolution Source (WU)
+              {resolutionStatus?.highIsEstimate && (
+                <span className="text-muted-foreground font-normal normal-case tracking-normal"> — estimated high</span>
+              )}
+            </span>
           ) : (
             <span className="text-[8px] uppercase tracking-widest text-orange-400 font-bold">Estimate (OpenWeatherMap)</span>
           )}
@@ -292,11 +328,14 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
             <div className="flex flex-col items-center gap-0.5">
               <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">
                 {showResolutionTemp ? "Observed High" : "High"}
+                {tempSource === "wu" && resolutionStatus?.highIsEstimate && (
+                  <span className="block text-[8px] normal-case tracking-normal text-muted-foreground/90">(estimated)</span>
+                )}
               </span>
               <div className="flex items-center gap-0.5">
                 <TrendingUp className="h-3 w-3 text-destructive" />
                 <span className={`text-[10px] sm:text-xs font-bold tabular-nums ${showResolutionTemp ? "text-emerald-400" : "text-destructive"}`}>
-                  {formatTemp(highTemp)}
+                  {formatHighTemp(highTemp)}
                 </span>
               </div>
             </div>
@@ -309,8 +348,7 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
 
         {showResolutionTemp && wuHigh !== null && (
           <div className="text-center text-[9px] text-muted-foreground">
-            Settles at: <span className="font-bold text-foreground">{Math.round(wuHigh)}°F / {fToC(Math.round(wuHigh)).toFixed(1)}°C</span>
-            <span className="text-[8px] ml-1">(≥0.5 rounds up)</span>
+            Settles at: <span className="font-bold text-foreground">{formatHighTemp(wuHigh)}</span>
           </div>
         )}
         {!showResolutionTemp && isObservation && highTemp !== null && (
@@ -436,15 +474,15 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
       </div>
 
       {/* Resolution Source */}
-      {event.resolutionSource && (
+      {resolutionDisplayUrl && (
         <div className="border-t border-border pt-2">
           <div className="flex items-center gap-1 text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">
             <Link className="h-3 w-3" />
             <span>Resolution Source</span>
           </div>
-          <a href={event.resolutionSource} target="_blank" rel="noopener noreferrer"
+          <a href={resolutionDisplayUrl} target="_blank" rel="noopener noreferrer"
             className="mt-0.5 block truncate text-[10px] sm:text-[11px] text-primary/80 transition-colors hover:text-primary">
-            {event.resolutionSource}
+            {resolutionDisplayUrl}
           </a>
         </div>
       )}

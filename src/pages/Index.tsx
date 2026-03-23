@@ -19,6 +19,7 @@ import { TimeSubTabBar } from "@/components/TimeSubTabBar";
 import { filterEventsBySearch, filterEventsByTimeBucket, type TimeSubTab } from "@/lib/eventTimeBucket";
 import { compareEventsByBetDateAscending } from "@/lib/betTimeWindow";
 import { isAsianLocation, type TemperatureEvent, type TemperatureMarket } from "@/lib/polymarket";
+import { getBetDateYmd, resolutionSourceForWuScrape } from "@/lib/wundergroundUrls";
 import { Thermometer, RefreshCw, AlertTriangle, Zap } from "lucide-react";
 
 type TabKey = "asian-past" | "asian-future" | "other-past" | "other-future" | "saved" | "trades" | "micro";
@@ -58,10 +59,6 @@ interface SessionBackupFile {
   exportedAt: string;
   paperTrading: { balance: number; trades: ImportedPaperTrade[] };
   savedBetIds: string[];
-}
-
-function getBetDate(event: TemperatureEvent): string {
-  return event.betDate || (event.endDate || event.createdAt || "").split("T")[0];
 }
 
 const MICRO_AUTO_KEY = "micro-auto-enabled";
@@ -112,13 +109,18 @@ const Index = () => {
 
   const { data: weatherData } = useWeatherData(cities);
 
+  const now = useMemo(() => new Date(), [dataUpdatedAt]);
+  const todayStr = now.toISOString().split("T")[0];
+
   const resolutionUrls = useMemo(() => {
     const urls: Record<string, string> = {};
     for (const event of events ?? []) {
-      if (event.resolutionSource) urls[event.id] = event.resolutionSource;
+      if (!event.resolutionSource) continue;
+      const betDate = getBetDateYmd(event);
+      urls[event.id] = resolutionSourceForWuScrape(event.resolutionSource, betDate, event.timezone, now);
     }
     return urls;
-  }, [events]);
+  }, [events, now]);
 
   const { data: resolutionData } = useResolutionData(resolutionUrls);
   const { data: noaaCompareByEvent, isLoading: noaaCompareLoading } = useNoaaWuCompare(events, resolutionData);
@@ -136,9 +138,6 @@ const Index = () => {
   const newSignals = useMemo(() => events?.filter(e => e.isNew).length ?? 0, [events]);
   const lastRefresh = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
 
-  const now = useMemo(() => new Date(), [dataUpdatedAt]);
-  const todayStr = now.toISOString().split("T")[0];
-
   const categorized = useMemo(() => {
     if (!events) return { "asian-past": [], "asian-future": [], "other-past": [], "other-future": [], saved: [], trades: [], micro: [] } as Record<TabKey, (TemperatureEvent & { betDate: string; isObs: boolean })[]>;
 
@@ -147,7 +146,7 @@ const Index = () => {
     };
 
     for (const event of events) {
-      const betDate = getBetDate(event);
+      const betDate = getBetDateYmd(event);
       const isObs = betDate <= todayStr;
       const asian = isAsianLocation(event.location);
       const enriched = { ...event, betDate, isObs };
