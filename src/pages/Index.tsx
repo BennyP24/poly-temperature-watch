@@ -14,11 +14,34 @@ import { PaperTradeDialog } from "@/components/PaperTradeDialog";
 import { PaperTradesSummary } from "@/components/PaperTradesSummary";
 import { MicroTradesSummary } from "@/components/MicroTradesSummary";
 import { useToast } from "@/components/ui/use-toast";
+import { EventSearchBar } from "@/components/EventSearchBar";
+import { TimeSubTabBar } from "@/components/TimeSubTabBar";
+import { filterEventsBySearch, filterEventsByTimeBucket, type TimeSubTab } from "@/lib/eventTimeBucket";
 import { compareEventsByBetDateAscending } from "@/lib/betTimeWindow";
 import { isAsianLocation, type TemperatureEvent, type TemperatureMarket } from "@/lib/polymarket";
 import { Thermometer, RefreshCw, AlertTriangle, Zap } from "lucide-react";
 
 type TabKey = "asian-past" | "asian-future" | "other-past" | "other-future" | "saved" | "trades" | "micro";
+
+type IndexListTabKey = "asian-past" | "asian-future" | "other-past" | "other-future" | "saved";
+
+const INDEX_LIST_TAB_KEYS: IndexListTabKey[] = [
+  "asian-past",
+  "asian-future",
+  "other-past",
+  "other-future",
+  "saved",
+];
+
+function indexTabDefaults<T>(value: T): Record<IndexListTabKey, T> {
+  return {
+    "asian-past": value,
+    "asian-future": value,
+    "other-past": value,
+    "other-future": value,
+    saved: value,
+  };
+}
 
 const TABS: { key: TabKey; label: string; short: string }[] = [
   { key: "asian-past", label: "Asian Markets · Past", short: "Asia Past" },
@@ -51,6 +74,10 @@ const Index = () => {
   const micro = usePaperTrading("micro");
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<TabKey>("asian-past");
+  const [timeSubByTab, setTimeSubByTab] = useState<Record<IndexListTabKey, TimeSubTab>>(() =>
+    indexTabDefaults("current"),
+  );
+  const [searchByTab, setSearchByTab] = useState<Record<IndexListTabKey, string>>(() => indexTabDefaults(""));
   const [tradeTarget, setTradeTarget] = useState<{ market: TemperatureMarket; event: TemperatureEvent } | null>(null);
   const [microAutoEnabled, setMicroAutoEnabled] = useState(() => {
     try { return localStorage.getItem(MICRO_AUTO_KEY) === "true"; } catch { return false; }
@@ -147,6 +174,18 @@ const Index = () => {
 
     return result;
   }, [events, todayStr, isSaved, now]);
+
+  const indexListFiltered = useMemo(() => {
+    if (!INDEX_LIST_TAB_KEYS.includes(activeTab as IndexListTabKey)) return null;
+    const key = activeTab as IndexListTabKey;
+    const raw = categorized[key];
+    const bucket = timeSubByTab[key];
+    const q = searchByTab[key];
+    const nowMs = now.getTime();
+    const bucketed = filterEventsByTimeBucket(raw, bucket, todayStr, nowMs);
+    const display = filterEventsBySearch(bucketed, q);
+    return { bucketed, display };
+  }, [categorized, activeTab, timeSubByTab, searchByTab, todayStr, now]);
 
   // Saved bets for micro trades (separate from normal saves)
   const { toggle: toggleMicroSave, isSaved: isMicroSaved, savedIds: microSavedIds, replaceSaved: replaceMicroSaved } = useSavedBets("micro-saved-bets");
@@ -305,6 +344,24 @@ const Index = () => {
           ))}
         </div>
 
+        {!isLoading && !error && INDEX_LIST_TAB_KEYS.includes(activeTab as IndexListTabKey) && (
+          <div className="mb-4 space-y-2">
+            <EventSearchBar
+              value={searchByTab[activeTab as IndexListTabKey]}
+              onChange={(v) =>
+                setSearchByTab((prev) => ({ ...prev, [activeTab as IndexListTabKey]: v }))
+              }
+              id={`index-search-${activeTab}`}
+            />
+            <TimeSubTabBar
+              value={timeSubByTab[activeTab as IndexListTabKey]}
+              onChange={(v) =>
+                setTimeSubByTab((prev) => ({ ...prev, [activeTab as IndexListTabKey]: v }))
+              }
+            />
+          </div>
+        )}
+
         {/* Content */}
         {isLoading && (
           <div className="flex flex-col items-center justify-center py-20">
@@ -342,7 +399,20 @@ const Index = () => {
           />
         )}
 
-        {!isLoading && !error && activeTab !== "trades" && activeTab !== "micro" && renderEvents(categorized[activeTab])}
+        {!isLoading && !error && activeTab !== "trades" && activeTab !== "micro" && indexListFiltered && (
+          indexListFiltered.display.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <Thermometer className="mb-2 h-6 w-6 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground text-center px-4">
+                {indexListFiltered.bucketed.length === 0
+                  ? "No bets in this time range."
+                  : "No bets match your search."}
+              </p>
+            </div>
+          ) : (
+            renderEvents(indexListFiltered.display)
+          )
+        )}
 
         {/* Paper Trade Dialog */}
         {tradeTarget && (

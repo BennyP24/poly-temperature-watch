@@ -13,11 +13,16 @@ import { StatusBar } from "@/components/StatusBar";
 import { TemperatureBetCard } from "@/components/TemperatureBetCard";
 import { PortfolioHeader } from "@/components/PortfolioHeader";
 import { MicroTradesSummary } from "@/components/MicroTradesSummary";
+import { EventSearchBar } from "@/components/EventSearchBar";
+import { TimeSubTabBar } from "@/components/TimeSubTabBar";
+import { filterEventsBySearch, filterEventsByTimeBucket, type TimeSubTab } from "@/lib/eventTimeBucket";
 import { compareEventsByBetDateAscending } from "@/lib/betTimeWindow";
 import { normalizeMarketId, type TemperatureEvent } from "@/lib/polymarket";
 import { Zap, RefreshCw, AlertTriangle, ArrowLeft, Thermometer } from "lucide-react";
 
 type TabKey = "active" | "upcoming" | "history";
+
+type MicroListTabKey = "active" | "upcoming";
 
 const TABS: { key: TabKey; label: string; short: string }[] = [
   { key: "active", label: "Active Positions", short: "Active" },
@@ -34,6 +39,15 @@ const MicroAccount = () => {
   const micro = usePaperTrading("micro");
   const { toggle: toggleMicroSave, isSaved: isMicroSaved } = useSavedBets("micro-saved-bets");
   const [activeTab, setActiveTab] = useState<TabKey>("active");
+  const [timeSubByTab, setTimeSubByTab] = useState<Record<MicroListTabKey, TimeSubTab>>(() => ({
+    active: "current",
+    upcoming: "future",
+  }));
+  const [searchByTab, setSearchByTab] = useState<Record<MicroListTabKey | "history", string>>(() => ({
+    active: "",
+    upcoming: "",
+    history: "",
+  }));
   const autoSettleRef = useRef<Set<string>>(new Set());
 
   const [microAutoEnabled, setMicroAutoEnabled] = useState(() => {
@@ -138,6 +152,26 @@ const MicroAccount = () => {
       .map(e => ({ ...e, betDate: e.betDate, isObs: e.betDate <= todayStr }))
       .sort(compareEventsByBetDateAscending);
   }, [events, activeEventIds, todayStr]);
+
+  const nowMsForFilter = useMemo(() => now.getTime(), [now]);
+
+  const activeBucketed = useMemo(
+    () => filterEventsByTimeBucket(activeEvents, timeSubByTab.active, todayStr, nowMsForFilter),
+    [activeEvents, timeSubByTab.active, todayStr, nowMsForFilter],
+  );
+  const activeDisplayed = useMemo(
+    () => filterEventsBySearch(activeBucketed, searchByTab.active),
+    [activeBucketed, searchByTab.active],
+  );
+
+  const upcomingBucketed = useMemo(
+    () => filterEventsByTimeBucket(upcoming, timeSubByTab.upcoming, todayStr, nowMsForFilter),
+    [upcoming, timeSubByTab.upcoming, todayStr, nowMsForFilter],
+  );
+  const upcomingDisplayed = useMemo(
+    () => filterEventsBySearch(upcomingBucketed, searchByTab.upcoming),
+    [upcomingBucketed, searchByTab.upcoming],
+  );
 
   const tabCounts = useMemo(() => ({
     active: activeEvents.length,
@@ -253,6 +287,43 @@ const MicroAccount = () => {
           </div>
         </div>
 
+        {!isLoading && !error && activeTab === "active" && (
+          <div className="mb-3 space-y-2">
+            <EventSearchBar
+              value={searchByTab.active}
+              onChange={(v) => setSearchByTab((prev) => ({ ...prev, active: v }))}
+              id="micro-search-active"
+            />
+            <TimeSubTabBar
+              value={timeSubByTab.active}
+              onChange={(v) => setTimeSubByTab((prev) => ({ ...prev, active: v }))}
+            />
+          </div>
+        )}
+        {!isLoading && !error && activeTab === "upcoming" && (
+          <div className="mb-3 space-y-2">
+            <EventSearchBar
+              value={searchByTab.upcoming}
+              onChange={(v) => setSearchByTab((prev) => ({ ...prev, upcoming: v }))}
+              id="micro-search-upcoming"
+            />
+            <TimeSubTabBar
+              value={timeSubByTab.upcoming}
+              onChange={(v) => setTimeSubByTab((prev) => ({ ...prev, upcoming: v }))}
+            />
+          </div>
+        )}
+        {!isLoading && !error && activeTab === "history" && (
+          <div className="mb-3">
+            <EventSearchBar
+              value={searchByTab.history}
+              onChange={(v) => setSearchByTab((prev) => ({ ...prev, history: v }))}
+              id="micro-search-history"
+              placeholder="Search closed trades…"
+            />
+          </div>
+        )}
+
         {/* Content */}
         {isLoading && (
           <div className="flex flex-col items-center justify-center py-20">
@@ -268,13 +339,40 @@ const MicroAccount = () => {
           </div>
         )}
 
-        {!isLoading && !error && activeTab === "active" && renderEvents(activeEvents)}
-        {!isLoading && !error && activeTab === "upcoming" && renderEvents(upcoming)}
+        {!isLoading && !error && activeTab === "active" && (
+          activeDisplayed.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <Thermometer className="mb-2 h-6 w-6 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground text-center px-4">
+                {activeBucketed.length === 0
+                  ? "No bets in this time range."
+                  : "No bets match your search."}
+              </p>
+            </div>
+          ) : (
+            renderEvents(activeDisplayed)
+          )
+        )}
+        {!isLoading && !error && activeTab === "upcoming" && (
+          upcomingDisplayed.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <Thermometer className="mb-2 h-6 w-6 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground text-center px-4">
+                {upcomingBucketed.length === 0
+                  ? "No bets in this time range."
+                  : "No bets match your search."}
+              </p>
+            </div>
+          ) : (
+            renderEvents(upcomingDisplayed)
+          )
+        )}
 
         {!isLoading && !error && activeTab === "history" && (
           <MicroTradesSummary
             balance={micro.balance} totalProfit={micro.totalProfit}
             openTrades={micro.openTrades} closedTrades={micro.closedTrades}
+            historySearchQuery={searchByTab.history}
             events={events} realTimePrices={realTimePrices ?? undefined}
             orderBooksByMarketId={orderBooksByMarketId}
             onReset={micro.resetBalance} onResolve={micro.resolveTrade}

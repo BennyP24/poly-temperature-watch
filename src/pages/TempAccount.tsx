@@ -13,6 +13,9 @@ import { PortfolioHeader } from "@/components/PortfolioHeader";
 import { PaperTradeDialog } from "@/components/PaperTradeDialog";
 import { PaperTradesSummary } from "@/components/PaperTradesSummary";
 import { useToast } from "@/components/ui/use-toast";
+import { EventSearchBar } from "@/components/EventSearchBar";
+import { TimeSubTabBar } from "@/components/TimeSubTabBar";
+import { filterEventsBySearch, filterEventsByTimeBucket, type TimeSubTab } from "@/lib/eventTimeBucket";
 import {
   compareEventsByBetDateAscending,
   compareReadyEventsByDateThenCloseTime,
@@ -21,6 +24,14 @@ import { isAsianLocation, normalizeMarketId, type TemperatureEvent, type Tempera
 import { Thermometer, RefreshCw, AlertTriangle, ArrowLeft, Briefcase } from "lucide-react";
 
 type TabKey = "ready" | "asian" | "usa" | "europe" | "other" | "trades";
+
+type TempListTabKey = "ready" | "asian" | "usa" | "europe" | "other";
+
+const TEMP_LIST_TAB_KEYS: TempListTabKey[] = ["ready", "asian", "usa", "europe", "other"];
+
+function tempTabDefaults<T>(value: T): Record<TempListTabKey, T> {
+  return { ready: value, asian: value, usa: value, europe: value, other: value };
+}
 
 const TABS: { key: TabKey; label: string; short: string }[] = [
   { key: "ready", label: "Ready", short: "Ready" },
@@ -70,6 +81,10 @@ const TempAccount = () => {
   const paper = usePaperTrading("paper");
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<TabKey>("ready");
+  const [timeSubByTab, setTimeSubByTab] = useState<Record<TempListTabKey, TimeSubTab>>(() =>
+    tempTabDefaults("current"),
+  );
+  const [searchByTab, setSearchByTab] = useState<Record<TempListTabKey, string>>(() => tempTabDefaults(""));
   const [tradeTarget, setTradeTarget] = useState<{ market: TemperatureMarket; event: TemperatureEvent } | null>(null);
   const autoSettleRef = useRef<Set<string>>(new Set());
 
@@ -179,6 +194,19 @@ const TempAccount = () => {
 
     return result;
   }, [events, todayStr, weatherData, resolutionData]);
+
+  const nowMsForFilter = useMemo(() => now.getTime(), [now]);
+
+  const tempListFiltered = useMemo(() => {
+    if (!TEMP_LIST_TAB_KEYS.includes(activeTab as TempListTabKey)) return null;
+    const key = activeTab as TempListTabKey;
+    const raw = categorized[key];
+    const bucket = timeSubByTab[key];
+    const q = searchByTab[key];
+    const bucketed = filterEventsByTimeBucket(raw, bucket, todayStr, nowMsForFilter);
+    const display = filterEventsBySearch(bucketed, q);
+    return { bucketed, display };
+  }, [categorized, activeTab, timeSubByTab, searchByTab, todayStr, nowMsForFilter]);
 
   const handleDownloadSession = useCallback(() => {
     const payload: SessionBackupFile = {
@@ -334,6 +362,24 @@ const TempAccount = () => {
           </div>
         </div>
 
+        {!isLoading && !error && TEMP_LIST_TAB_KEYS.includes(activeTab as TempListTabKey) && (
+          <div className="mb-3 space-y-2">
+            <EventSearchBar
+              value={searchByTab[activeTab as TempListTabKey]}
+              onChange={(v) =>
+                setSearchByTab((prev) => ({ ...prev, [activeTab as TempListTabKey]: v }))
+              }
+              id={`temp-search-${activeTab}`}
+            />
+            <TimeSubTabBar
+              value={timeSubByTab[activeTab as TempListTabKey]}
+              onChange={(v) =>
+                setTimeSubByTab((prev) => ({ ...prev, [activeTab as TempListTabKey]: v }))
+              }
+            />
+          </div>
+        )}
+
         {/* Content */}
         {isLoading && (
           <div className="flex flex-col items-center justify-center py-20">
@@ -360,11 +406,20 @@ const TempAccount = () => {
           />
         )}
 
-        {!isLoading && !error && activeTab === "ready" && renderEvents(categorized.ready, true)}
-        {!isLoading && !error && activeTab === "asian" && renderEvents(categorized.asian)}
-        {!isLoading && !error && activeTab === "usa" && renderEvents(categorized.usa)}
-        {!isLoading && !error && activeTab === "europe" && renderEvents(categorized.europe)}
-        {!isLoading && !error && activeTab === "other" && renderEvents(categorized.other)}
+        {!isLoading && !error && tempListFiltered && activeTab !== "trades" && (
+          tempListFiltered.display.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <Thermometer className="mb-2 h-6 w-6 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground text-center px-4">
+                {tempListFiltered.bucketed.length === 0
+                  ? "No bets in this time range."
+                  : "No bets match your search."}
+              </p>
+            </div>
+          ) : (
+            renderEvents(tempListFiltered.display, activeTab === "ready")
+          )
+        )}
 
         {tradeTarget && (
           <PaperTradeDialog

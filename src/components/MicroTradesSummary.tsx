@@ -13,6 +13,8 @@ interface MicroTradesSummaryProps {
   totalProfit: number;
   openTrades: PaperTrade[];
   closedTrades: PaperTrade[];
+  /** When set, filters the history list only (stats still use full closedTrades). */
+  historySearchQuery?: string;
   events?: TemperatureEvent[];
   realTimePrices?: Map<string, MarketPrice>;
   orderBooksByMarketId?: Map<string, MarketSideBooks>;
@@ -25,12 +27,22 @@ interface MicroTradesSummaryProps {
 }
 
 export function MicroTradesSummary({
-  balance, totalProfit, openTrades, closedTrades, events,
+  balance, totalProfit, openTrades, closedTrades, historySearchQuery, events,
   realTimePrices,
   orderBooksByMarketId,
   onReset, onResolve, onSell, autoTradeEnabled, onToggleAutoTrade,
   midnightCountdown,
 }: MicroTradesSummaryProps) {
+  const closedForHistoryList = useMemo(() => {
+    const q = (historySearchQuery ?? "").trim().toLowerCase();
+    if (!q) return closedTrades;
+    return closedTrades.filter(
+      (t) =>
+        t.event_title.toLowerCase().includes(q) ||
+        t.market_title.toLowerCase().includes(q),
+    );
+  }, [closedTrades, historySearchQuery]);
+
   const wins = closedTrades.filter((t) => t.status === "won").length;
   const losses = closedTrades.filter((t) => t.status === "lost").length;
   const sold = closedTrades.filter((t) => t.status === "sold").length;
@@ -205,9 +217,15 @@ export function MicroTradesSummary({
 
       {closedTrades.length > 0 && (
         <div className="rounded-md border border-border bg-card p-3">
-          <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-foreground">Micro Trade History ({closedTrades.length})</h4>
+          <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-foreground">
+            Micro Trade History ({closedForHistoryList.length}
+            {closedForHistoryList.length !== closedTrades.length ? ` / ${closedTrades.length}` : ""})
+          </h4>
+          {closedForHistoryList.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">No trades match your search.</p>
+          ) : (
           <div className="space-y-1">
-            {closedTrades.map((trade) => (
+            {closedForHistoryList.map((trade) => (
               <div key={trade.id} className="flex items-center justify-between rounded-sm bg-muted/30 px-2 py-1.5">
                 <div className="mr-2 flex min-w-0 items-center gap-1.5">
                   {trade.profit >= 0 ? <TrendingUp className="h-3 w-3 shrink-0 text-primary" /> : <TrendingDown className="h-3 w-3 shrink-0 text-destructive" />}
@@ -224,6 +242,7 @@ export function MicroTradesSummary({
               </div>
             ))}
           </div>
+          )}
         </div>
       )}
 
