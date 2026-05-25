@@ -2,11 +2,11 @@ import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import { usePolymarketData } from "@/hooks/usePolymarketData";
 import { useWeatherData } from "@/hooks/useWeatherData";
-import { useResolutionData } from "@/hooks/useResolutionData";
-import { useNoaaWuCompare } from "@/hooks/useNoaaWuCompare";
+import { useResolutionData, type ResolutionInput } from "@/hooks/useResolutionData";
 import { useMarketPrices } from "@/hooks/useMarketPrices";
 import { useSavedBets } from "@/hooks/useSavedBets";
 import { usePaperTrading, type ImportedPaperTrade } from "@/hooks/usePaperTrading";
+import { useAutoSell } from "@/hooks/useAutoSell";
 import { StatusBar } from "@/components/StatusBar";
 import { TemperatureBetCard } from "@/components/TemperatureBetCard";
 import { PortfolioHeader } from "@/components/PortfolioHeader";
@@ -21,26 +21,36 @@ import {
   compareReadyEventsByDateThenCloseTime,
 } from "@/lib/betTimeWindow";
 import { isAsianLocation, normalizeMarketId, type TemperatureEvent, type TemperatureMarket } from "@/lib/polymarket";
-import { getBetDateYmd, resolutionSourceForWuScrape } from "@/lib/wundergroundUrls";
+import { getBetDateYmd } from "@/lib/eventDates";
+import { resolveAirportForLocation } from "@/lib/airports";
 import { Thermometer, RefreshCw, AlertTriangle, ArrowLeft, Briefcase } from "lucide-react";
 
-type TabKey = "ready" | "asian" | "usa" | "europe" | "other" | "trades";
+type TabKey = "ready" | "asian" | "israel" | "usa" | "europe" | "other" | "saved" | "trades";
 
-type TempListTabKey = "ready" | "asian" | "usa" | "europe" | "other";
+type TempListTabKey = "ready" | "asian" | "israel" | "usa" | "europe" | "other" | "saved";
 
-const TEMP_LIST_TAB_KEYS: TempListTabKey[] = ["ready", "asian", "usa", "europe", "other"];
+const TEMP_LIST_TAB_KEYS: TempListTabKey[] = ["ready", "asian", "israel", "usa", "europe", "other", "saved"];
 
 function tempTabDefaults<T>(value: T): Record<TempListTabKey, T> {
-  return { ready: value, asian: value, usa: value, europe: value, other: value };
+  return { ready: value, asian: value, israel: value, usa: value, europe: value, other: value, saved: value };
 }
 
 const TABS: { key: TabKey; label: string; short: string }[] = [
   { key: "ready", label: "Ready", short: "Ready" },
   { key: "asian", label: "Asian", short: "Asian" },
+  { key: "israel", label: "Israel", short: "Israel" },
   { key: "usa", label: "USA", short: "USA" },
   { key: "europe", label: "Europe", short: "Europe" },
   { key: "other", label: "Other", short: "Other" },
+  { key: "saved", label: "Saved", short: "Saved" },
   { key: "trades", label: "Trades", short: "Trades" },
+];
+
+const ISRAEL_CITIES = [
+  "tel aviv", "jerusalem", "haifa", "beer sheva", "beersheba", "eilat",
+  "netanya", "ashdod", "rishon lezion", "petah tikva", "holon", "bnei brak",
+  "ramat gan", "ashkelon", "rehovot", "bat yam", "herzliya", "kfar saba",
+  "modiin", "nazareth", "lod", "ramla", "israel",
 ];
 
 const USA_CITIES = [
@@ -60,8 +70,10 @@ const EUROPE_CITIES = [
   "kyiv", "kiev", "manchester", "birmingham", "frankfurt", "hamburg",
 ];
 
-function getRegion(location: string): "asian" | "usa" | "europe" | "other" {
+function getRegion(location: string): "asian" | "israel" | "usa" | "europe" | "other" {
   const lower = location.toLowerCase().trim();
+  // Check Israel first before other regions
+  if (ISRAEL_CITIES.some(c => lower.includes(c))) return "israel";
   if (isAsianLocation(location)) return "asian";
   if (USA_CITIES.some(c => lower.includes(c))) return "usa";
   if (EUROPE_CITIES.some(c => lower.includes(c))) return "europe";
@@ -102,20 +114,25 @@ const TempAccount = () => {
   const { data: weatherData } = useWeatherData(cities);
 
   const now = useMemo(() => new Date(), [dataUpdatedAt]);
-  const todayStr = now.toLocaleDateString("en-CA");
+  const todayStr = now.toLocaleDateString("en-CA"); // User's local YYYY-MM-DD
 
-  const resolutionUrls = useMemo(() => {
-    const urls: Record<string, string> = {};
+  const resolutionInputs = useMemo(() => {
+    const inputs: Record<string, ResolutionInput> = {};
     for (const event of events ?? []) {
-      if (!event.resolutionSource) continue;
+      const airport = resolveAirportForLocation(event.location);
+      if (!airport) continue;
       const betDate = getBetDateYmd(event);
-      urls[event.id] = resolutionSourceForWuScrape(event.resolutionSource, betDate, event.timezone, now);
+      if (!betDate) continue;
+      inputs[event.id] = {
+        icao: airport.icao,
+        date: betDate,
+        tz: event.timezone || airport.timezone,
+      };
     }
-    return urls;
-  }, [events, now]);
+    return inputs;
+  }, [events]);
 
-  const { data: resolutionData } = useResolutionData(resolutionUrls);
-  const { data: noaaCompareByEvent, isLoading: noaaCompareLoading } = useNoaaWuCompare(events, resolutionData);
+  const { data: resolutionData } = useResolutionData(resolutionInputs);
 
   const openMarketIds = useMemo(
     () => paper.openTrades.map(t => t.market_id),
@@ -124,6 +141,14 @@ const TempAccount = () => {
   const { data: marketPricesData } = useMarketPrices(openMarketIds);
   const realTimePrices = marketPricesData?.prices;
   const orderBooksByMarketId = marketPricesData?.orderBooksByMarketId;
+
+  // Auto-sell with trailing T/P
+  const autoSell = useAutoSell({
+    openTrades: paper.openTrades,
+    realTimePrices,
+    orderBooksByMarketId,
+    onSell: paper.sellTrade,
+  });
 
   const newSignals = useMemo(() => events?.filter(e => e.isNew).length ?? 0, [events]);
   const lastRefresh = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
@@ -151,11 +176,11 @@ const TempAccount = () => {
     }
   }, [events, paper.openTrades, paper.resolveTrade]);
 
-  type EnrichedEvent = TemperatureEvent & { betDate: string; isObs: boolean };
+  type EnrichedEvent = TemperatureEvent & { betDate: string; isObs: boolean; almostReady?: boolean };
 
   const categorized = useMemo(() => {
     const empty: Record<TabKey, EnrichedEvent[]> = {
-      ready: [], asian: [], usa: [], europe: [], other: [], trades: [],
+      ready: [], asian: [], israel: [], usa: [], europe: [], other: [], saved: [], trades: [],
     };
     if (!events) return empty;
 
@@ -169,13 +194,20 @@ const TempAccount = () => {
 
       result[region].push(enriched);
 
+      // Add to saved tab if saved
+      if (isSaved(event.id)) {
+        result.saved.push(enriched);
+      }
+
       const cityKey = event.location.toLowerCase().trim();
       const cityWeather = weatherData?.[cityKey];
       const dateW = cityWeather?.dates?.[betDate];
       const coolingConfirmed = dateW?.observedCoolingConfirmed ?? (isObs && dateW?.isPast) ?? false;
+      const coolingProgress = dateW?.coolingProgress ?? 0;
       const resConfirmed = resolutionData?.[event.id]?.isObserved ?? false;
-      const omHigh = dateW?.highF ?? cityWeather?.highestRecordedF ?? cityWeather?.forecastHighF ?? null;
-      const highTemp = resolutionData?.[event.id]?.observedHighF ?? omHigh;
+      // METAR is the only acceptable observed high for the Ready signal — OWM
+      // forecasts are intentionally NOT used here (resolution decision).
+      const highTemp = resolutionData?.[event.id]?.observedHighF ?? null;
       const closesInMs = event.endDate ? new Date(event.endDate).getTime() - Date.now() : 0;
 
       const isReady =
@@ -184,19 +216,36 @@ const TempAccount = () => {
         closesInMs >= 3600000 &&
         highTemp !== null;
 
+      // "Almost Ready" = has 1 cooling decline (not yet 2), has markets, closes in >= 1 hour
+      const isAlmostReady =
+        !isReady &&
+        isObs &&
+        coolingProgress === 1 &&
+        event.markets.length > 0 &&
+        closesInMs >= 3600000;
+
       if (isReady) {
         result.ready.push(enriched);
+      } else if (isAlmostReady) {
+        result.ready.push({ ...enriched, almostReady: true });
       }
     }
 
-    result.ready.sort(compareReadyEventsByDateThenCloseTime);
+    // Sort ready events: fully ready first, then almost ready
+    result.ready.sort((a, b) => {
+      if (a.almostReady && !b.almostReady) return 1;
+      if (!a.almostReady && b.almostReady) return -1;
+      return compareReadyEventsByDateThenCloseTime(a, b);
+    });
     result.asian.sort(compareEventsByBetDateAscending);
+    result.israel.sort(compareEventsByBetDateAscending);
     result.usa.sort(compareEventsByBetDateAscending);
     result.europe.sort(compareEventsByBetDateAscending);
     result.other.sort(compareEventsByBetDateAscending);
+    result.saved.sort(compareEventsByBetDateAscending);
 
     return result;
-  }, [events, todayStr, weatherData, resolutionData]);
+  }, [events, todayStr, weatherData, resolutionData, isSaved]);
 
   const nowMsForFilter = useMemo(() => now.getTime(), [now]);
 
@@ -204,8 +253,13 @@ const TempAccount = () => {
     if (!TEMP_LIST_TAB_KEYS.includes(activeTab as TempListTabKey)) return null;
     const key = activeTab as TempListTabKey;
     const raw = categorized[key];
-    const bucket = timeSubByTab[key];
     const q = searchByTab[key];
+    // Skip time filtering for saved tab - show all saved bets regardless of date
+    if (key === "saved") {
+      const display = filterEventsBySearch(raw, q);
+      return { bucketed: raw, display };
+    }
+    const bucket = timeSubByTab[key];
     const bucketed = filterEventsByTimeBucket(raw, bucket, todayStr, nowMsForFilter);
     const display = filterEventsBySearch(bucketed, q);
     return { bucketed, display };
@@ -256,9 +310,11 @@ const TempAccount = () => {
   const tabCounts = useMemo(() => ({
     ready: categorized.ready.length,
     asian: categorized.asian.length,
+    israel: categorized.israel.length,
     usa: categorized.usa.length,
     europe: categorized.europe.length,
     other: categorized.other.length,
+    saved: categorized.saved.length,
     trades: paper.openTrades.length + paper.closedTrades.length,
   }), [categorized, paper.openTrades, paper.closedTrades]);
 
@@ -274,9 +330,14 @@ const TempAccount = () => {
       );
     }
 
+    // Separate ready and almost-ready events
+    const readyEvents = items.filter(e => !e.almostReady);
+    const almostReadyEvents = items.filter(e => e.almostReady);
+
     return (
       <div className="space-y-3 sm:space-y-4">
-        {items.map(event => {
+        {/* Fully Ready Events */}
+        {readyEvents.map(event => {
           refCounter++;
           return (
             <TemperatureBetCard
@@ -291,12 +352,44 @@ const TempAccount = () => {
               betDate={event.betDate}
               onPlaceTrade={(market) => setTradeTarget({ market, event })}
               resolutionStatus={resolutionData?.[event.id]}
-              noaaCompare={noaaCompareByEvent?.[event.id]}
-              noaaCompareLoading={noaaCompareLoading}
               hideClocks={hideClocks}
             />
           );
         })}
+
+        {/* Almost Ready Section (1 cooling decline observed) */}
+        {almostReadyEvents.length > 0 && (
+          <>
+            <div className="flex items-center gap-2 pt-2 pb-1">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-[10px] uppercase tracking-wider text-orange-400 font-bold">
+                Almost Ready ({almostReadyEvents.length}) — 1 cooling decline observed
+              </span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+            {almostReadyEvents.map(event => {
+              refCounter++;
+              return (
+                <div key={event.id} className="relative">
+                  <div className="absolute -left-1 top-0 bottom-0 w-1 bg-orange-400 rounded-full" />
+                  <TemperatureBetCard
+                    event={event}
+                    userTimezone={userTimezone}
+                    weather={weatherData?.[event.location.toLowerCase().trim()]}
+                    isSaved={isSaved(event.id)}
+                    onToggleSave={() => toggle(event.id)}
+                    refNumber={refCounter}
+                    isObservation={event.isObs}
+                    betDate={event.betDate}
+                    onPlaceTrade={(market) => setTradeTarget({ market, event })}
+                    resolutionStatus={resolutionData?.[event.id]}
+                    hideClocks={hideClocks}
+                  />
+                </div>
+              );
+            })}
+          </>
+        )}
       </div>
     );
   };
@@ -406,6 +499,10 @@ const TempAccount = () => {
             orderBooksByMarketId={orderBooksByMarketId}
             onReset={paper.resetBalance} onResolve={paper.resolveTrade}
             onSell={paper.sellTrade} onDownloadSession={handleDownloadSession} onUploadSession={handleUploadSession}
+            autoSellConfig={autoSell.config}
+            autoSellTargets={autoSell.stats.targets}
+            onToggleAutoSell={autoSell.toggleEnabled}
+            getAutoSellTarget={autoSell.getTarget}
           />
         )}
 

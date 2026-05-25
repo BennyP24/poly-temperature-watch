@@ -1,7 +1,16 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getSupabaseFunctionUrl } from "@/lib/supabaseFunctions";
 import { getSupabaseAuthHeaders } from "@/lib/supabaseAuth";
 
+/**
+ * One METAR-based temperature reading per Polymarket event.
+ *
+ * `source` is the constant label "NOAA Aviation Weather METAR" so the UI
+ * can confidently brand the value (no silent fallback to OWM/Open-Meteo).
+ * Station metadata mirrors what the edge function pulled back from
+ * `aviationweather.gov/api/data/metar`.
+ */
 export interface ResolutionStatus {
   currentTempF: number | null;
   currentTempC: number | null;
@@ -9,58 +18,106 @@ export interface ResolutionStatus {
   observedHighC: number | null;
   isObserved: boolean;
   source: string;
+  stationId: string | null;
+  stationName: string | null;
+  stationLat: number | null;
+  stationLon: number | null;
+  latestObsTime: string | null;
   error?: string;
-  /** Set when WU high is from embedded JSON/heuristics (not guaranteed official daily max). */
-  highIsEstimate?: boolean;
 }
 
-async function fetchResolutionStatus(url: string): Promise<ResolutionStatus> {
-  const fullUrl = `${getSupabaseFunctionUrl("resolution-proxy")}?url=${encodeURIComponent(url)}`;
+/** Per-event request fed into the resolver. Built in the page from the airport lookup. */
+export interface ResolutionInput {
+  icao: string;
+  /** Local calendar date (YYYY-MM-DD) the bet resolves on. */
+  date: string;
+  /** IANA timezone for `date` (typically `event.timezone` / airport timezone). */
+  tz: string;
+}
+
+const RESOLUTION_SOURCE_LABEL = "NOAA Aviation Weather METAR";
+
+function emptyStatus(overrides: Partial<ResolutionStatus> = {}): ResolutionStatus {
+  return {
+    currentTempF: null,
+    currentTempC: null,
+    observedHighF: null,
+    observedHighC: null,
+    isObserved: false,
+    source: RESOLUTION_SOURCE_LABEL,
+    stationId: null,
+    stationName: null,
+    stationLat: null,
+    stationLon: null,
+    latestObsTime: null,
+    ...overrides,
+  };
+}
+
+async function fetchResolutionStatus(input: ResolutionInput): Promise<ResolutionStatus> {
+  const params = new URLSearchParams({
+    icao: input.icao,
+    date: input.date,
+    tz: input.tz,
+  });
+  const fullUrl = `${getSupabaseFunctionUrl("resolution-proxy")}?${params.toString()}`;
   const response = await fetch(fullUrl, { headers: getSupabaseAuthHeaders() });
-  if (!response.ok) throw new Error(`Resolution proxy error: ${response.status}`);
+  if (!response.ok) throw new Error(`resolution-proxy HTTP ${response.status}`);
   const rawText = await response.text();
+  if (!rawText) return emptyStatus({ stationId: input.icao });
   let data: ResolutionStatus;
   try {
-    data = (rawText ? JSON.parse(rawText) : {}) as ResolutionStatus;
+    data = JSON.parse(rawText) as ResolutionStatus;
   } catch (parseErr) {
     throw parseErr instanceof Error ? parseErr : new Error("resolution-proxy: invalid JSON");
   }
-  return data;
+  return {
+    ...emptyStatus(),
+    ...data,
+    source: data.source || RESOLUTION_SOURCE_LABEL,
+  };
 }
 
-export function useResolutionData(resolutionUrls: Record<string, string>) {
-  const urlEntries = Object.entries(resolutionUrls).filter(([, url]) => url.length > 0);
-  // Must include URLs: past bets switch /weather/ → /history/daily/.../date/... — same event IDs
-  // would otherwise reuse cached resolution rows and look like "nothing changed".
-  const cacheKey = urlEntries
-    .map(([id, url]) => `${id}:${url}`)
-    .sort()
-    .join("|");
+export function useResolutionData(resolutionInputs: Record<string, ResolutionInput>) {
+  const inputEntries = useMemo(
+    () =>
+      Object.entries(resolutionInputs).filter(
+        ([, v]) => v && v.icao && v.date && v.tz,
+      ),
+    [resolutionInputs],
+  );
+
+  // ICAO + date + tz fully specify a METAR query, so they belong in the cache key.
+  const cacheKey = useMemo(
+    () =>
+      inputEntries
+        .map(([id, v]) => `${id}:${v.icao}:${v.date}:${v.tz}`)
+        .sort()
+        .join("|"),
+    [inputEntries],
+  );
 
   return useQuery<Record<string, ResolutionStatus>>({
-    // Bump when resolution-proxy semantics change so clients drop stale cached highs.
-    queryKey: ["resolution-data", "v4-primary-calendar-block", cacheKey],
+    // v5-metar invalidates any cached WU-shape rows from previous client versions.
+    queryKey: ["resolution-data", "v5-metar", cacheKey],
     queryFn: async () => {
-      if (urlEntries.length === 0) return {};
+      if (inputEntries.length === 0) return {};
 
       const results: Record<string, ResolutionStatus> = {};
       const batches: Promise<void>[] = [];
 
-      for (const [eventId, url] of urlEntries) {
+      for (const [eventId, input] of inputEntries) {
         batches.push(
-          fetchResolutionStatus(url)
-            .then((status) => { results[eventId] = status; })
-            .catch(() => {
-              results[eventId] = {
-                currentTempF: null,
-                currentTempC: null,
-                observedHighF: null,
-                observedHighC: null,
-                isObserved: false,
-                source: url,
-                error: "Fetch failed",
-              };
+          fetchResolutionStatus(input)
+            .then((status) => {
+              results[eventId] = status;
             })
+            .catch((err) => {
+              results[eventId] = emptyStatus({
+                stationId: input.icao,
+                error: err instanceof Error ? err.message : "Fetch failed",
+              });
+            }),
         );
       }
 
@@ -70,6 +127,6 @@ export function useResolutionData(resolutionUrls: Record<string, string>) {
     refetchInterval: 120_000,
     staleTime: 60_000,
     retry: 1,
-    enabled: urlEntries.length > 0,
+    enabled: inputEntries.length > 0,
   });
 }

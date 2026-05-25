@@ -127,95 +127,6 @@ function getTimezone(location: string): string {
   return partialMatch?.[1] ?? "UTC";
 }
 
-// City → Weather Underground URL path for the resolution source
-const CITY_WU_URLS: Record<string, string> = {
-  "miami": "https://www.wunderground.com/weather/us/fl/miami/KMIA",
-  "new york": "https://www.wunderground.com/weather/us/ny/new-york-city/KLGA",
-  "nyc": "https://www.wunderground.com/weather/us/ny/new-york-city/KLGA",
-  "chicago": "https://www.wunderground.com/weather/us/il/chicago/KORD",
-  "los angeles": "https://www.wunderground.com/weather/us/ca/los-angeles/KLAX",
-  "houston": "https://www.wunderground.com/weather/us/tx/houston/KIAH",
-  "dallas": "https://www.wunderground.com/weather/us/tx/dallas/KDFW",
-  "phoenix": "https://www.wunderground.com/weather/us/az/phoenix/KPHX",
-  "denver": "https://www.wunderground.com/weather/us/co/denver/KDEN",
-  "seattle": "https://www.wunderground.com/weather/us/wa/seattle/KSEA",
-  "san francisco": "https://www.wunderground.com/weather/us/ca/san-francisco/KSFO",
-  "boston": "https://www.wunderground.com/weather/us/ma/boston/KBOS",
-  "atlanta": "https://www.wunderground.com/weather/us/ga/atlanta/KATL",
-  "washington": "https://www.wunderground.com/weather/us/dc/washington/KDCA",
-  "las vegas": "https://www.wunderground.com/weather/us/nv/las-vegas/KLAS",
-  "austin": "https://www.wunderground.com/weather/us/tx/austin/KAUS",
-  "detroit": "https://www.wunderground.com/weather/us/mi/detroit/KDTW",
-  "portland": "https://www.wunderground.com/weather/us/or/portland/KPDX",
-  "salt lake city": "https://www.wunderground.com/weather/us/ut/salt-lake-city/KSLC",
-  "anchorage": "https://www.wunderground.com/weather/us/ak/anchorage/PANC",
-  "honolulu": "https://www.wunderground.com/weather/us/hi/honolulu/PHNL",
-  "toronto": "https://www.wunderground.com/weather/ca/toronto/CYYZ",
-  "vancouver": "https://www.wunderground.com/weather/ca/vancouver/CYVR",
-  "calgary": "https://www.wunderground.com/weather/ca/calgary/CYYC",
-  "montreal": "https://www.wunderground.com/weather/ca/montreal/CYUL",
-  "ottawa": "https://www.wunderground.com/weather/ca/ottawa/CYOW",
-  "london": "https://www.wunderground.com/weather/gb/london/EGLL",
-  "paris": "https://www.wunderground.com/weather/fr/paris/LFPG",
-  "berlin": "https://www.wunderground.com/weather/de/berlin/EDDB",
-  "munich": "https://www.wunderground.com/weather/de/munich/EDDM",
-  "rome": "https://www.wunderground.com/weather/it/rome/LIRF",
-  "madrid": "https://www.wunderground.com/weather/es/madrid/LEMD",
-  "amsterdam": "https://www.wunderground.com/weather/nl/amsterdam/EHAM",
-  "zurich": "https://www.wunderground.com/weather/ch/zurich/LSZH",
-  "moscow": "https://www.wunderground.com/weather/ru/moscow/UUEE",
-  "istanbul": "https://www.wunderground.com/weather/tr/istanbul/LTFM",
-  "ankara": "https://www.wunderground.com/weather/tr/ankara/LTAC",
-  "cairo": "https://www.wunderground.com/weather/eg/cairo/HECA",
-  "johannesburg": "https://www.wunderground.com/weather/za/johannesburg/FAOR",
-  "dubai": "https://www.wunderground.com/weather/ae/dubai/OMDB",
-  "seoul": "https://www.wunderground.com/weather/kr/seoul/RKSS",
-  "tokyo": "https://www.wunderground.com/weather/jp/tokyo/RJTT",
-  "beijing": "https://www.wunderground.com/weather/cn/beijing/ZBAA",
-  "shanghai": "https://www.wunderground.com/weather/cn/shanghai/ZSPD",
-  "hong kong": "https://www.wunderground.com/weather/hk/hong-kong/VHHH",
-  "singapore": "https://www.wunderground.com/weather/sg/singapore/WSSS",
-  "bangkok": "https://www.wunderground.com/weather/th/bangkok/VTBS",
-  "manila": "https://www.wunderground.com/weather/ph/manila/RPLL",
-  "jakarta": "https://www.wunderground.com/weather/id/jakarta/WIII",
-  "kuala lumpur": "https://www.wunderground.com/weather/my/kuala-lumpur/WMKK",
-  "phnom penh": "https://www.wunderground.com/weather/kh/phnom-penh/VDPP",
-  "ho chi minh": "https://www.wunderground.com/weather/vn/ho-chi-minh-city/VVTS",
-  "delhi": "https://www.wunderground.com/weather/in/delhi/VIDP",
-  "mumbai": "https://www.wunderground.com/weather/in/mumbai/VABB",
-  "lucknow": "https://www.wunderground.com/weather/in/lucknow/VILK",
-  "tel aviv": "https://www.wunderground.com/weather/il/tel-aviv/LLBG",
-  "ben gurion": "https://www.wunderground.com/weather/il/tel-aviv/LLBG",
-  "jerusalem": "https://www.wunderground.com/weather/il/jerusalem",
-  "haifa": "https://www.wunderground.com/weather/il/haifa",
-  "sydney": "https://www.wunderground.com/weather/au/sydney/YSSY",
-  "melbourne": "https://www.wunderground.com/weather/au/melbourne/YMML",
-  "brisbane": "https://www.wunderground.com/weather/au/brisbane/YBBN",
-  "perth": "https://www.wunderground.com/weather/au/perth/YPPH",
-  "auckland": "https://www.wunderground.com/weather/nz/auckland/NZAA",
-  "wellington": "https://www.wunderground.com/weather/nz/wellington/NZWN",
-  "sao paulo": "https://www.wunderground.com/weather/br/sao-paulo/SBGR",
-  "mexico city": "https://www.wunderground.com/weather/mx/mexico-city/MMMX",
-  "buenos aires": "https://www.wunderground.com/weather/ar/buenos-aires/SAEZ",
-  "lima": "https://www.wunderground.com/weather/pe/lima/SPJC",
-  "bogota": "https://www.wunderground.com/weather/co/bogota/SKBO",
-  "santiago": "https://www.wunderground.com/weather/cl/santiago/SCEL",
-};
-
-function getWuUrl(location: string): string | null {
-  const normalized = normalizeLocationKey(location);
-  const canonical = CITY_ALIASES[normalized] ?? normalized;
-
-  const direct = CITY_WU_URLS[canonical];
-  if (direct) return direct;
-
-  for (const [city, url] of Object.entries(CITY_WU_URLS)) {
-    if (canonical.includes(city) || city.includes(canonical)) return url;
-  }
-
-  return null;
-}
-
 function extractLinks(description: string): string[] {
   const urlRegex = /https?:\/\/[^\s)<>"\\]+/g;
   return description.match(urlRegex) || [];
@@ -305,22 +216,50 @@ export interface TemperatureMarket {
 }
 
 export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
-  const response = await fetch(
-    `${getSupabaseFunctionUrl("polymarket-proxy")}?endpoint=events&params=${encodeURIComponent("active=true&closed=false&limit=200&order=createdAt&ascending=false&tag_slug=weather")}`,
-    { headers: getSupabaseAuthHeaders() }
-  );
+  const headers = getSupabaseAuthHeaders();
+  
+  // Make two API calls: one for soonest events, one for latest created (future events)
+  const ascUrl = `${getSupabaseFunctionUrl("polymarket-proxy")}?endpoint=events&params=${encodeURIComponent("closed=false&limit=300&order=endDate&ascending=true&tag_slug=weather")}`;
+  const descUrl = `${getSupabaseFunctionUrl("polymarket-proxy")}?endpoint=events&params=${encodeURIComponent("closed=false&limit=300&order=createdAt&ascending=false&tag_slug=weather")}`;
+  
+  let ascResponse: Response, descResponse: Response;
+  try {
+    [ascResponse, descResponse] = await Promise.all([
+      fetch(ascUrl, { headers }),
+      fetch(descUrl, { headers }),
+    ]);
+  } catch (error) {
+    throw error;
+  }
 
-  if (!response.ok) throw new Error(`Proxy error: ${response.status}`);
-  const events = await response.json();
+  if (!ascResponse.ok || !descResponse.ok) {
+    throw new Error(`Proxy error: ${ascResponse.status} / ${descResponse.status}`);
+  }
+  
+  const [ascEvents, descEvents] = await Promise.all([
+    ascResponse.json(),
+    descResponse.json(),
+  ]);
+  
+  // Merge and dedupe by event id
+  const seenIds = new Set<string>();
+  const events: any[] = [];
+  for (const e of [...ascEvents, ...descEvents]) {
+    if (!seenIds.has(e.id)) {
+      seenIds.add(e.id);
+      events.push(e);
+    }
+  }
 
   const now = new Date();
   const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-  return events
+  const mapped = events
     .filter((e: any) => {
-      if (e.closed) return false;
       const title = e.title || "";
-      return isTemperatureBet(title);
+      if (!isTemperatureBet(title)) return false;
+      // Don't filter by e.closed - let events through if they have open markets
+      return true;
     })
     .map((event: any) => {
       const title = event.title || "";
@@ -328,14 +267,12 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
       const location = extractLocation(title) || extractLocation(description);
       const timezone = getTimezone(location);
       const referenceLinks = extractLinks(description);
-      const polymarketResSource = event.markets?.[0]?.resolutionSource || referenceLinks[0] || "";
-      const wuUrl = getWuUrl(location);
-      const resolutionSource = wuUrl || polymarketResSource;
+      const resolutionSource = event.markets?.[0]?.resolutionSource || referenceLinks[0] || "";
 
       const asian = isAsianLocation(location);
 
+      // Include all markets, even closed ones - filter only truly closed (resolved) ones
       const markets: TemperatureMarket[] = (event.markets || [])
-        .filter((m: any) => !m.closed)
         .map((m: any) => {
           let yesPrice = 0;
           let noPrice = 0;
@@ -358,7 +295,8 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
             closed: m.closed,
             isFulfilled,
           };
-        });
+        })
+        .filter((m: TemperatureMarket) => !m.closed);
 
       const hasUnfulfilled = asian
         ? markets.length > 0
@@ -366,9 +304,6 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
 
       const betDate = extractBetDateFromTitle(title)
         || (event.endDate || event.createdAt || "").split("T")[0];
-
-      // All open outcomes (match Polymarket event page); resolved/near-1¢ bins stay visible.
-      const marketsForEvent = markets;
 
       return {
         id: event.id,
@@ -387,11 +322,19 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
         liquidity: event.liquidity || event.liquidityClob || 0,
         polymarketUrl: `https://polymarket.com/event/${event.slug}`,
         isNew: new Date(event.createdAt) > oneDayAgo,
-        markets: marketsForEvent,
+        markets,
         priorityRank: isPriorityCity(location),
         _hasUnfulfilled: hasUnfulfilled,
       };
+    });
+
+  // Filter out events where ANY market is at 99%+ (essentially resolved)
+  return mapped
+    .filter((e: any) => {
+      if (e.markets.length === 0) return false;
+      // Remove event if ANY market has yesPrice >= 0.99 (essentially decided)
+      const hasResolvedMarket = e.markets.some((m: TemperatureMarket) => m.yesPrice >= 0.99);
+      return !hasResolvedMarket;
     })
-    .filter((e: any) => e._hasUnfulfilled && e.markets.length > 0)
     .map(({ _hasUnfulfilled, ...e }: any) => e);
 }

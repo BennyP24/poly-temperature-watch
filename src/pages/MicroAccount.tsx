@@ -2,8 +2,7 @@ import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import { usePolymarketData } from "@/hooks/usePolymarketData";
 import { useWeatherData } from "@/hooks/useWeatherData";
-import { useResolutionData } from "@/hooks/useResolutionData";
-import { useNoaaWuCompare } from "@/hooks/useNoaaWuCompare";
+import { useResolutionData, type ResolutionInput } from "@/hooks/useResolutionData";
 import { useMarketPrices } from "@/hooks/useMarketPrices";
 import { usePaperTrading } from "@/hooks/usePaperTrading";
 import { useMicroAutoTrade } from "@/hooks/useMicroAutoTrade";
@@ -18,7 +17,8 @@ import { TimeSubTabBar } from "@/components/TimeSubTabBar";
 import { filterEventsBySearch, filterEventsByTimeBucket, type TimeSubTab } from "@/lib/eventTimeBucket";
 import { compareEventsByBetDateAscending } from "@/lib/betTimeWindow";
 import { normalizeMarketId, type TemperatureEvent } from "@/lib/polymarket";
-import { getBetDateYmd, resolutionSourceForWuScrape } from "@/lib/wundergroundUrls";
+import { getBetDateYmd } from "@/lib/eventDates";
+import { resolveAirportForLocation } from "@/lib/airports";
 import { Zap, RefreshCw, AlertTriangle, ArrowLeft, Thermometer } from "lucide-react";
 
 type TabKey = "active" | "upcoming" | "history";
@@ -107,20 +107,25 @@ const MicroAccount = () => {
   const { data: weatherData } = useWeatherData(cities);
 
   const now = useMemo(() => new Date(), [dataUpdatedAt]);
-  const todayStr = now.toLocaleDateString("en-CA");
+  const todayStr = now.toLocaleDateString("en-CA"); // User's local YYYY-MM-DD
 
-  const resolutionUrls = useMemo(() => {
-    const urls: Record<string, string> = {};
+  const resolutionInputs = useMemo(() => {
+    const inputs: Record<string, ResolutionInput> = {};
     for (const event of events ?? []) {
-      if (!event.resolutionSource) continue;
+      const airport = resolveAirportForLocation(event.location);
+      if (!airport) continue;
       const betDate = getBetDateYmd(event);
-      urls[event.id] = resolutionSourceForWuScrape(event.resolutionSource, betDate, event.timezone, now);
+      if (!betDate) continue;
+      inputs[event.id] = {
+        icao: airport.icao,
+        date: betDate,
+        tz: event.timezone || airport.timezone,
+      };
     }
-    return urls;
-  }, [events, now]);
+    return inputs;
+  }, [events]);
 
-  const { data: resolutionData } = useResolutionData(resolutionUrls);
-  const { data: noaaCompareByEvent, isLoading: noaaCompareLoading } = useNoaaWuCompare(events, resolutionData);
+  const { data: resolutionData } = useResolutionData(resolutionInputs);
 
   // Real-time BID for micro positions
   const openMarketIds = useMemo(
@@ -212,8 +217,6 @@ const MicroAccount = () => {
               isObservation={event.isObs}
               betDate={event.betDate}
               resolutionStatus={resolutionData?.[event.id]}
-              noaaCompare={noaaCompareByEvent?.[event.id]}
-              noaaCompareLoading={noaaCompareLoading}
             />
           );
         })}

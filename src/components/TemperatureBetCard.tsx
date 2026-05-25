@@ -2,8 +2,6 @@ import { useState } from "react";
 import type { TemperatureEvent, TemperatureMarket } from "@/lib/polymarket";
 import type { CityWeather, DateWeather } from "@/hooks/useWeatherData";
 import type { ResolutionStatus } from "@/hooks/useResolutionData";
-import type { NoaaWuCompareResponse } from "@/lib/noaaWuCompare";
-import { wuResolutionDisplayUrl } from "@/lib/wundergroundUrls";
 import { SignalBadge, type SignalStatus } from "./SignalBadge";
 import { ClockDisplay } from "./ClockDisplay";
 import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, Check, Copy, Zap, ShieldCheck } from "lucide-react";
@@ -21,21 +19,7 @@ interface TemperatureBetCardProps {
   betDate?: string;
   onPlaceTrade?: (market: TemperatureMarket) => void;
   resolutionStatus?: ResolutionStatus;
-  /** NOAA/NWS vs WU cross-check from `noaa-wu-compare` (when WU observed high exists). */
-  noaaCompare?: NoaaWuCompareResponse | null;
-  noaaCompareLoading?: boolean;
   hideClocks?: boolean;
-}
-
-function noaaSourceShortLabel(source: NoaaWuCompareResponse["source"]): string {
-  switch (source) {
-    case "nws":
-      return "NWS";
-    case "metar_lemd":
-      return "METAR LEMD";
-    case "none":
-      return "none";
-  }
 }
 
 function parseTempRange(title: string): [number, number] | null {
@@ -97,6 +81,25 @@ function formatHour(hour: number): string {
   return `${h}:00 ${ampm}`;
 }
 
+function formatTimeRemaining(endDate: string | undefined): { text: string; hoursLeft: number | null } {
+  if (!endDate) return { text: "--", hoursLeft: null };
+  const end = new Date(endDate);
+  const now = new Date();
+  const diffMs = end.getTime() - now.getTime();
+  if (diffMs <= 0) return { text: "Closed", hoursLeft: 0 };
+  const hours = Math.floor(diffMs / (1000 * 60 * 60));
+  const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24);
+    const remainingHours = hours % 24;
+    return { text: `${days}d ${remainingHours}h`, hoursLeft: hours };
+  }
+  if (hours > 0) {
+    return { text: `${hours}h ${mins}m`, hoursLeft: hours };
+  }
+  return { text: `${mins}m`, hoursLeft: hours };
+}
+
 function getDateWeather(weather: CityWeather | undefined, betDate: string | undefined): DateWeather | null {
   if (!weather?.dates || !betDate) return null;
   return weather.dates[betDate] ?? null;
@@ -121,26 +124,21 @@ function deriveSignalStatus(
   return "live";
 }
 
-export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, isMicroSaved, onToggleMicroSave, refNumber, isObservation, betDate, onPlaceTrade, resolutionStatus, noaaCompare, noaaCompareLoading, hideClocks }: TemperatureBetCardProps) {
+export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, isMicroSaved, onToggleMicroSave, refNumber, isObservation, betDate, onPlaceTrade, resolutionStatus, hideClocks }: TemperatureBetCardProps) {
   const dateWeather = getDateWeather(weather, betDate);
 
-  const resolutionDisplayUrl = event.resolutionSource
-    ? wuResolutionDisplayUrl(event.resolutionSource, event.betDate, event.timezone)
-    : "";
+  // METAR is the only source for observed temperature. OpenWeatherMap is used
+  // exclusively for cooling/peak detection below — never as a temperature fallback.
+  const metarCurrent = resolutionStatus?.currentTempF ?? null;
+  const metarHigh = resolutionStatus?.observedHighF ?? null;
+  const hasMetarData = metarCurrent !== null || metarHigh !== null;
 
-  // WU (resolution source) takes priority; Open-Meteo is fallback
-  const wuCurrent = resolutionStatus?.currentTempF ?? null;
-  const wuHigh = resolutionStatus?.observedHighF ?? null;
-  const hasWuData = wuCurrent !== null || wuHigh !== null;
+  const currentTemp = metarCurrent;
+  const highTemp = metarHigh;
+  const tempSource: "metar" | "none" = hasMetarData ? "metar" : "none";
 
-  const omCurrent = weather?.currentTempF ?? null;
-  const omHigh = dateWeather?.highF ?? weather?.highestRecordedF ?? weather?.forecastHighF ?? null;
-
-  const currentTemp = wuCurrent ?? omCurrent;
-  const highTemp = hasWuData ? (wuHigh ?? omHigh) : omHigh;
-  const tempSource: "wu" | "estimate" = hasWuData ? "wu" : "estimate";
-
-  // Cooling detection uses Open-Meteo internally
+  // Cooling detection uses OpenWeatherMap hourly data; this is independent of
+  // the METAR temperature shown above.
   const observedCoolingConfirmed = dateWeather?.observedCoolingConfirmed ?? weather?.observedCoolingConfirmed ?? false;
   const coolingStartHour = dateWeather?.coolingStartHour ?? weather?.coolingStartHour ?? null;
   const peakHour = dateWeather?.peakHour ?? weather?.peakHour ?? null;
@@ -157,8 +155,8 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
 
   const signalStatus = deriveSignalStatus(isObservation, dateWeather, weather, resolutionStatus);
 
-  // Only mark as "resolution confirmed" when WU data is present AND cooling confirmed
-  const showResolutionTemp = isObservation && observedCoolingConfirmed && hasWuData;
+  // Only mark as "resolution confirmed" when we have METAR data AND cooling confirmed.
+  const showResolutionTemp = isObservation && observedCoolingConfirmed && hasMetarData;
 
   const coolingHour = coolingStartHour ?? peakHour;
 
@@ -271,15 +269,20 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
       {/* Temperature data */}
       <div className="mb-2 sm:mb-3 rounded-sm border border-border bg-muted/50 p-2 sm:p-3 space-y-2">
         <div className="flex items-center gap-1 mb-1">
-          {tempSource === "wu" ? (
+          {tempSource === "metar" ? (
             <span className="text-[8px] uppercase tracking-widest text-emerald-400 font-bold">
-              Resolution Source (WU)
-              {resolutionStatus?.highIsEstimate && (
-                <span className="text-muted-foreground font-normal normal-case tracking-normal"> — estimated high</span>
+              NOAA METAR
+              {resolutionStatus?.stationId && (
+                <span className="text-muted-foreground font-normal normal-case tracking-normal">
+                  {" "}
+                  · station {resolutionStatus.stationId}
+                </span>
               )}
             </span>
           ) : (
-            <span className="text-[8px] uppercase tracking-widest text-orange-400 font-bold">Estimate (OpenWeatherMap)</span>
+            <span className="text-[8px] uppercase tracking-widest text-orange-400 font-bold">
+              {resolutionStatus?.error ? resolutionStatus.error : "Waiting for METAR observation"}
+            </span>
           )}
           {isCooling && (
             <span className="ml-auto text-[8px] uppercase tracking-widest text-emerald-400 font-bold">Cooling Confirmed</span>
@@ -291,28 +294,6 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
             <span className="ml-auto text-[8px] uppercase tracking-widest text-blue-400 font-bold">Future</span>
           )}
         </div>
-
-        {tempSource === "wu" && noaaCompareLoading && !noaaCompare && (
-          <div className="text-[8px] text-muted-foreground mb-0.5">NOAA cross-check…</div>
-        )}
-        {tempSource === "wu" && noaaCompare && (
-          <div className="text-[8px] text-cyan-400/90 font-semibold tracking-wide mb-0.5">
-            NOAA ref: {noaaSourceShortLabel(noaaCompare.source)}
-            {noaaCompare.noaaDailyMaxC != null && noaaCompare.differenceC != null && (
-              <span className="text-muted-foreground font-normal">
-                {" "}
-                · max {noaaCompare.noaaDailyMaxC}°C vs WU (Δ {noaaCompare.differenceC > 0 ? "+" : ""}
-                {noaaCompare.differenceC}°C)
-              </span>
-            )}
-          </div>
-        )}
-
-        {tempSource === "estimate" && hasAnyTempData && (
-          <div className="text-center text-[8px] text-orange-400/80 -mt-1 mb-1">
-            May differ from final resolution value
-          </div>
-        )}
 
         {hasAnyTempData ? (
           <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
@@ -328,9 +309,6 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
             <div className="flex flex-col items-center gap-0.5">
               <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">
                 {showResolutionTemp ? "Observed High" : "High"}
-                {tempSource === "wu" && resolutionStatus?.highIsEstimate && (
-                  <span className="block text-[8px] normal-case tracking-normal text-muted-foreground/90">(estimated)</span>
-                )}
               </span>
               <div className="flex items-center gap-0.5">
                 <TrendingUp className="h-3 w-3 text-destructive" />
@@ -342,18 +320,18 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
           </div>
         ) : (
           <div className="text-center text-[9px] text-muted-foreground py-1">
-            Waiting for weather data...
+            {resolutionStatus?.error ?? "Waiting for METAR data..."}
           </div>
         )}
 
-        {showResolutionTemp && wuHigh !== null && (
+        {showResolutionTemp && metarHigh !== null && (
           <div className="text-center text-[9px] text-muted-foreground">
-            Settles at: <span className="font-bold text-foreground">{formatHighTemp(wuHigh)}</span>
+            Settles at: <span className="font-bold text-foreground">{formatHighTemp(metarHigh)}</span>
           </div>
         )}
         {!showResolutionTemp && isObservation && highTemp !== null && (
           <div className="text-center text-[9px] text-orange-400">
-            {hasWuData ? "Waiting for 3h cooling confirmation..." : "Estimate only — waiting for resolution source..."}
+            Waiting for 3h cooling confirmation...
           </div>
         )}
 
@@ -381,6 +359,30 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
 
       {/* Markets / Odds — full outcome list (sorted by implied YES, like Polymarket) */}
       <div className="mb-2 sm:mb-3 space-y-1.5 overflow-x-auto">
+        {/* Resolution time with risk indicator */}
+        {(() => {
+          const { text: timeText, hoursLeft } = formatTimeRemaining(event.endDate);
+          const isHighRisk = hoursLeft !== null && hoursLeft <= 2;
+          const isMediumRisk = hoursLeft !== null && hoursLeft > 2 && hoursLeft <= 6;
+          const urgentClass = isHighRisk ? "text-destructive" : isMediumRisk ? "text-orange-400" : "text-muted-foreground";
+          const riskLabel = isHighRisk ? "HIGH RISK" : isMediumRisk ? "MED RISK" : null;
+          const riskBgClass = isHighRisk ? "bg-destructive/20" : isMediumRisk ? "bg-orange-400/20" : "";
+          return (
+            <div className={`flex items-center justify-between px-2 py-1 mb-1 rounded-sm ${riskBgClass}`}>
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Resolution in:</span>
+              <div className="flex items-center gap-2">
+                {riskLabel && (
+                  <span className={`text-[9px] font-bold uppercase ${urgentClass}`}>
+                    {riskLabel}
+                  </span>
+                )}
+                <span className={`text-[11px] font-bold tabular-nums ${urgentClass}`}>
+                  {timeText}
+                </span>
+              </div>
+            </div>
+          );
+        })()}
         <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] gap-x-2 sm:gap-x-3 items-end text-[10px] sm:text-xs uppercase tracking-wider text-muted-foreground px-2 min-w-[min(100%,380px)]">
           <div className="flex items-center justify-between gap-2 min-w-0">
             <span>Outcome</span>
@@ -399,7 +401,7 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
           {[...event.markets]
             .sort((a, b) => b.yesPrice - a.yesPrice)
             .map((m) => {
-              const correct = showResolutionTemp && isCorrectAnswer(m.groupItemTitle, wuHigh);
+              const correct = showResolutionTemp && isCorrectAnswer(m.groupItemTitle, metarHigh);
               const yesProfitPct = m.yesPrice > 0 ? ((1 - m.yesPrice) / m.yesPrice) * 100 : 0;
               const noProfitPct = m.noPrice > 0 ? ((1 - m.noPrice) / m.noPrice) * 100 : 0;
               const label = m.groupItemTitle || m.question || "—";
@@ -473,23 +475,60 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
         </div>
       </div>
 
-      {/* Resolution Source */}
-      {resolutionDisplayUrl && (
+      {/* METAR station debug panel */}
+      {resolutionStatus?.stationId && (
+        <div className="border-t border-border pt-2">
+          <div className="flex items-center gap-1 text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">
+            <Link className="h-3 w-3" />
+            <span>Resolution Source · NOAA Aviation Weather METAR</span>
+          </div>
+          <div className="mt-0.5 grid grid-cols-1 gap-y-0.5 text-[10px] sm:text-[11px] text-muted-foreground">
+            <div>
+              Station <span className="font-mono font-semibold text-foreground">{resolutionStatus.stationId}</span>
+              {resolutionStatus.stationName && (
+                <span className="text-muted-foreground/80"> · {resolutionStatus.stationName}</span>
+              )}
+            </div>
+            {resolutionStatus.stationLat !== null && resolutionStatus.stationLon !== null && (
+              <div>
+                Coords <span className="font-mono text-foreground">{resolutionStatus.stationLat.toFixed(4)}, {resolutionStatus.stationLon.toFixed(4)}</span>
+              </div>
+            )}
+            {resolutionStatus.latestObsTime && (
+              <div>
+                Latest obs <span className="font-mono text-foreground">{new Date(resolutionStatus.latestObsTime).toLocaleString(undefined, { timeZone: event.timezone, hour12: false })}</span>
+              </div>
+            )}
+            <a
+              href={`https://aviationweather.gov/data/metar/?id=${encodeURIComponent(resolutionStatus.stationId)}&hours=24`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="truncate text-primary/80 transition-colors hover:text-primary"
+            >
+              aviationweather.gov/data/metar/?id={resolutionStatus.stationId}&hours=24
+            </a>
+            {resolutionStatus.error && (
+              <div className="text-orange-400">{resolutionStatus.error}</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!resolutionStatus?.stationId && resolutionStatus?.error && (
         <div className="border-t border-border pt-2">
           <div className="flex items-center gap-1 text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">
             <Link className="h-3 w-3" />
             <span>Resolution Source</span>
           </div>
-          <a href={resolutionDisplayUrl} target="_blank" rel="noopener noreferrer"
-            className="mt-0.5 block truncate text-[10px] sm:text-[11px] text-primary/80 transition-colors hover:text-primary">
-            {resolutionDisplayUrl}
-          </a>
+          <div className="mt-0.5 text-[10px] sm:text-[11px] text-orange-400">
+            {resolutionStatus.error}
+          </div>
         </div>
       )}
 
-      {event.referenceLinks.length > 1 && (
+      {event.referenceLinks.length > 0 && (
         <div className="mt-1 space-y-0.5">
-          {event.referenceLinks.slice(1).map((link, i) => (
+          {event.referenceLinks.map((link, i) => (
             <a key={i} href={link} target="_blank" rel="noopener noreferrer"
               className="block truncate text-[10px] sm:text-[11px] text-muted-foreground transition-colors hover:text-primary">
               {link}

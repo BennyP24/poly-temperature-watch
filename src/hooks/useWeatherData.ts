@@ -21,6 +21,7 @@ export interface DateWeather {
   isFuture: boolean;
   observedCoolingConfirmed: boolean;
   coolingStartHour: number | null;
+  coolingProgress: number; // 0=none, 1=one decline observed, 2=confirmed (2 declines)
   hourly: HourlyTemp[];
 }
 
@@ -265,9 +266,11 @@ function processOwmData(
 
     let observedCoolingConfirmed = false;
     let coolingStartHour: number | null = null;
+    let coolingProgress = 0; // 0, 1, or 2 (2 = confirmed)
 
     if (isPast) {
       observedCoolingConfirmed = true;
+      coolingProgress = 2;
     } else if (isToday && recordedHours.length >= 3) {
       const recPeak = recordedHours.reduce(
         (max, h) => (h.tempF > max.tempF ? h : max),
@@ -283,12 +286,23 @@ function processOwmData(
           consecutiveDeclines++;
           if (consecutiveDeclines >= 2) {
             observedCoolingConfirmed = true;
+            coolingProgress = 2;
             coolingStartHour =
               afterPeak[i - consecutiveDeclines]?.hour ?? afterPeak[i - 1].hour;
             break;
           }
         } else {
           consecutiveDeclines = 0;
+        }
+      }
+      // Track progress even if not yet confirmed
+      if (!observedCoolingConfirmed && afterPeak.length >= 2) {
+        // Check if we have at least 1 decline
+        for (let i = 1; i < afterPeak.length; i++) {
+          if (afterPeak[i].tempF < afterPeak[i - 1].tempF) {
+            coolingProgress = 1;
+            break;
+          }
         }
       }
     }
@@ -306,6 +320,7 @@ function processOwmData(
       isFuture,
       observedCoolingConfirmed,
       coolingStartHour,
+      coolingProgress,
       hourly: hourlyArr,
     };
   }

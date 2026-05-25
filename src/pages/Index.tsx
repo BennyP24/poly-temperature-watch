@@ -2,8 +2,7 @@ import { useMemo, useState, useEffect, useCallback } from "react";
 import { usePolymarketData } from "@/hooks/usePolymarketData";
 import { useMarketPrices } from "@/hooks/useMarketPrices";
 import { useWeatherData } from "@/hooks/useWeatherData";
-import { useResolutionData } from "@/hooks/useResolutionData";
-import { useNoaaWuCompare } from "@/hooks/useNoaaWuCompare";
+import { useResolutionData, type ResolutionInput } from "@/hooks/useResolutionData";
 import { useSavedBets } from "@/hooks/useSavedBets";
 import { usePaperTrading, type ImportedPaperTrade } from "@/hooks/usePaperTrading";
 import { useMicroAutoTrade } from "@/hooks/useMicroAutoTrade";
@@ -19,7 +18,8 @@ import { TimeSubTabBar } from "@/components/TimeSubTabBar";
 import { filterEventsBySearch, filterEventsByTimeBucket, type TimeSubTab } from "@/lib/eventTimeBucket";
 import { compareEventsByBetDateAscending } from "@/lib/betTimeWindow";
 import { isAsianLocation, type TemperatureEvent, type TemperatureMarket } from "@/lib/polymarket";
-import { getBetDateYmd, resolutionSourceForWuScrape } from "@/lib/wundergroundUrls";
+import { getBetDateYmd } from "@/lib/eventDates";
+import { resolveAirportForLocation } from "@/lib/airports";
 import { Thermometer, RefreshCw, AlertTriangle, Zap } from "lucide-react";
 
 type TabKey = "asian-past" | "asian-future" | "other-past" | "other-future" | "saved" | "trades" | "micro";
@@ -110,20 +110,25 @@ const Index = () => {
   const { data: weatherData } = useWeatherData(cities);
 
   const now = useMemo(() => new Date(), [dataUpdatedAt]);
-  const todayStr = now.toISOString().split("T")[0];
+  const todayStr = now.toLocaleDateString("en-CA"); // User's local YYYY-MM-DD
 
-  const resolutionUrls = useMemo(() => {
-    const urls: Record<string, string> = {};
+  const resolutionInputs = useMemo(() => {
+    const inputs: Record<string, ResolutionInput> = {};
     for (const event of events ?? []) {
-      if (!event.resolutionSource) continue;
+      const airport = resolveAirportForLocation(event.location);
+      if (!airport) continue;
       const betDate = getBetDateYmd(event);
-      urls[event.id] = resolutionSourceForWuScrape(event.resolutionSource, betDate, event.timezone, now);
+      if (!betDate) continue;
+      inputs[event.id] = {
+        icao: airport.icao,
+        date: betDate,
+        tz: event.timezone || airport.timezone,
+      };
     }
-    return urls;
-  }, [events, now]);
+    return inputs;
+  }, [events]);
 
-  const { data: resolutionData } = useResolutionData(resolutionUrls);
-  const { data: noaaCompareByEvent, isLoading: noaaCompareLoading } = useNoaaWuCompare(events, resolutionData);
+  const { data: resolutionData } = useResolutionData(resolutionInputs);
 
   const openMarketIds = useMemo(() => {
     const ids = new Set<string>();
@@ -172,14 +177,19 @@ const Index = () => {
     sortEvents(result.saved);
 
     return result;
-  }, [events, todayStr, isSaved, now]);
+  }, [events, todayStr, isSaved]);
 
   const indexListFiltered = useMemo(() => {
     if (!INDEX_LIST_TAB_KEYS.includes(activeTab as IndexListTabKey)) return null;
     const key = activeTab as IndexListTabKey;
     const raw = categorized[key];
-    const bucket = timeSubByTab[key];
     const q = searchByTab[key];
+    // Skip time filtering for saved tab - show all saved bets regardless of date
+    if (key === "saved") {
+      const display = filterEventsBySearch(raw, q);
+      return { bucketed: raw, display };
+    }
+    const bucket = timeSubByTab[key];
     const nowMs = now.getTime();
     const bucketed = filterEventsByTimeBucket(raw, bucket, todayStr, nowMs);
     const display = filterEventsBySearch(bucketed, q);
@@ -272,8 +282,6 @@ const Index = () => {
               betDate={event.betDate}
               onPlaceTrade={(market) => setTradeTarget({ market, event })}
               resolutionStatus={resolutionData?.[event.id]}
-              noaaCompare={noaaCompareByEvent?.[event.id]}
-              noaaCompareLoading={noaaCompareLoading}
             />
           );
         })}

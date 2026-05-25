@@ -10,6 +10,9 @@
  */
 export function getSupabaseFunctionUrl(path: string): string {
   const base = String(import.meta.env.VITE_SUPABASE_URL ?? "").replace(/\/$/, "");
+  // #region agent log
+  fetch('http://127.0.0.1:7858/ingest/c2b3a394-85aa-4e8d-a530-1fbc8eb60c4e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'7152ff'},body:JSON.stringify({sessionId:'7152ff',runId:'initial',hypothesisId:'H1',location:'src/lib/supabaseFunctions.ts:12',message:'Computed Supabase base URL',data:{hasBase:Boolean(base),basePreview:base ? base.slice(0, 60) : ""},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   if (!base) {
     console.error(
       "[polymarket-bet-watch] VITE_SUPABASE_URL is empty. Set it in .env and restart the dev server or rebuild.",

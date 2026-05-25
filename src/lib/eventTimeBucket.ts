@@ -8,8 +8,8 @@ export type TimeSubTab = "last24h" | "current" | "future";
 
 /**
  * last24h: market `endDate` in (now − 24h, now] — recently ended.
- * current: `betDate` equals today’s calendar string (page-local `todayStr`).
- * future: `betDate` after today.
+ * current: `betDate` equals today (user's local date).
+ * future: `betDate` after today (user's local date).
  */
 export function eventMatchesTimeBucket(
   event: { betDate: string; endDate: string },

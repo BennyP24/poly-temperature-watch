@@ -30,6 +30,9 @@
     "useDefineForClassFields": true
   },
   "include": [
-    "src"
+    "src",
+    "supabase/functions/_shared/airports.ts",
+    "supabase/functions/_shared/metar.ts",
+    "supabase/functions/_shared/timezone.ts"
   ]
 }

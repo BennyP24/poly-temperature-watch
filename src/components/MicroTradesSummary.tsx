@@ -225,22 +225,38 @@ export function MicroTradesSummary({
             <p className="py-4 text-center text-sm text-muted-foreground">No trades match your search.</p>
           ) : (
           <div className="space-y-1">
-            {closedForHistoryList.map((trade) => (
-              <div key={trade.id} className="flex items-center justify-between rounded-sm bg-muted/30 px-2 py-1.5">
-                <div className="mr-2 flex min-w-0 items-center gap-1.5">
-                  {trade.profit >= 0 ? <TrendingUp className="h-3 w-3 shrink-0 text-primary" /> : <TrendingDown className="h-3 w-3 shrink-0 text-destructive" />}
-                  <div className="min-w-0">
-                    <p className="truncate text-xs font-medium text-foreground">{trade.market_title}</p>
-                    <p className="truncate text-[10px] text-muted-foreground">
-                      {trade.side.toUpperCase()} @ {(trade.price * 100).toFixed(1)}¢ · ${trade.amount.toFixed(2)} · {trade.status.toUpperCase()}
-                    </p>
+            {closedForHistoryList.map((trade) => {
+              const tradeUrl = trade.bet_url || marketLookup.get(normalizeMarketId(trade.market_id))?.url;
+              return (
+                <div key={trade.id} className="flex items-center justify-between rounded-sm bg-muted/30 px-2 py-1.5">
+                  <div className="mr-2 flex min-w-0 items-center gap-1.5">
+                    {trade.profit >= 0 ? <TrendingUp className="h-3 w-3 shrink-0 text-primary" /> : <TrendingDown className="h-3 w-3 shrink-0 text-destructive" />}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="truncate text-xs font-medium text-foreground">{trade.market_title}</p>
+                        {tradeUrl && (
+                          <a
+                            href={tradeUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="shrink-0 text-muted-foreground transition-colors hover:text-primary"
+                            title="Open on Polymarket"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        )}
+                      </div>
+                      <p className="truncate text-[10px] text-muted-foreground">
+                        {trade.side.toUpperCase()} @ {(trade.price * 100).toFixed(1)}¢ · ${trade.amount.toFixed(2)} · {trade.status.toUpperCase()}
+                      </p>
+                    </div>
                   </div>
+                  <span className={`shrink-0 text-xs font-bold tabular-nums ${trade.profit >= 0 ? "text-primary" : "text-destructive"}`}>
+                    {trade.profit >= 0 ? "+" : ""}{trade.profit.toFixed(2)}
+                  </span>
                 </div>
-                <span className={`shrink-0 text-xs font-bold tabular-nums ${trade.profit >= 0 ? "text-primary" : "text-destructive"}`}>
-                  {trade.profit >= 0 ? "+" : ""}{trade.profit.toFixed(2)}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
           )}
         </div>

@@ -4,9 +4,6 @@ project_id = "uqcxwepisnhicoeizqqo"
 [functions.resolution-proxy]
 verify_jwt = false
 
-[functions.noaa-wu-compare]
-verify_jwt = false
-
 # Browser calls with anon key; JWT verification can reject valid anon on GET.
 [functions.polymarket-proxy]
 verify_jwt = false

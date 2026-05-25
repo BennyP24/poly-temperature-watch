@@ -12,7 +12,9 @@ import {
   Upload,
   Download,
   HandCoins,
+  Target,
 } from "lucide-react";
+import type { AutoSellConfig, AutoSellTarget } from "@/hooks/useAutoSell";
 
 interface PaperTradesSummaryProps {
   balance: number;
@@ -27,6 +29,11 @@ interface PaperTradesSummaryProps {
   onSell: (tradeId: string, bidPrice: number, options?: { payoutUsd?: number }) => void | Promise<boolean>;
   onDownloadSession: () => void;
   onUploadSession: (file: File) => void | Promise<void>;
+  // Auto-sell props (optional)
+  autoSellConfig?: AutoSellConfig;
+  autoSellTargets?: AutoSellTarget[];
+  onToggleAutoSell?: () => void;
+  getAutoSellTarget?: (tradeId: string) => AutoSellTarget | undefined;
 }
 
 export function PaperTradesSummary({
@@ -42,6 +49,10 @@ export function PaperTradesSummary({
   onSell,
   onDownloadSession,
   onUploadSession,
+  autoSellConfig,
+  autoSellTargets,
+  onToggleAutoSell,
+  getAutoSellTarget,
 }: PaperTradesSummaryProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -91,6 +102,20 @@ export function PaperTradesSummary({
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-bold text-foreground">Paper Account</h3>
           <div className="flex flex-wrap items-center gap-1.5">
+            {onToggleAutoSell && (
+              <button
+                onClick={onToggleAutoSell}
+                className={`flex items-center gap-1 rounded-sm px-2 py-1 text-[10px] font-bold transition-colors ${
+                  autoSellConfig?.enabled
+                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/50"
+                    : "border border-border text-muted-foreground hover:text-foreground"
+                }`}
+                title={`Auto-sell at ${autoSellConfig?.profitTargetPercent ?? 20}% profit with trailing T/P`}
+              >
+                <Target className="h-3 w-3" />
+                Auto-Sell {autoSellConfig?.enabled ? "ON" : "OFF"}
+              </button>
+            )}
             <button
               onClick={onDownloadSession}
               className="flex items-center gap-1 rounded-sm border border-border bg-secondary px-2 py-1 text-[10px] text-secondary-foreground transition-colors hover:bg-secondary/80"
@@ -210,6 +235,36 @@ export function PaperTradesSummary({
                     </span>
                   </div>
 
+                  {/* Auto-sell T/P target */}
+                  {(() => {
+                    const target = getAutoSellTarget?.(trade.id);
+                    if (!target || !autoSellConfig?.enabled) return null;
+                    const progress = bidPrice !== null ? ((bidPrice - target.entryPrice) / (target.currentTpPrice - target.entryPrice)) * 100 : 0;
+                    return (
+                      <div className="mb-2 rounded-sm bg-emerald-500/10 px-2 py-1.5 border border-emerald-500/30">
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="text-emerald-400 font-bold flex items-center gap-1">
+                            <Target className="h-3 w-3" />
+                            T/P Target
+                          </span>
+                          <span className="text-emerald-400 font-bold tabular-nums">
+                            {(target.currentTpPrice * 100).toFixed(1)}¢
+                          </span>
+                        </div>
+                        <div className="mt-1 h-1 bg-emerald-500/20 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-emerald-500 transition-all duration-300"
+                            style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+                          />
+                        </div>
+                        <div className="mt-1 flex justify-between text-[9px] text-muted-foreground">
+                          <span>Entry: {(target.entryPrice * 100).toFixed(1)}¢</span>
+                          <span>High: {(target.highWaterMark * 100).toFixed(1)}¢</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   <OrderBookExitPreview trade={trade} sides={sides} />
 
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -253,27 +308,43 @@ export function PaperTradesSummary({
         <div className="rounded-md border border-border bg-card p-3">
           <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-foreground">Trade History ({closedTrades.length})</h4>
           <div className="space-y-1">
-            {closedTrades.map((trade) => (
-              <div key={trade.id} className="flex items-center justify-between rounded-sm bg-muted/30 px-2 py-1.5">
-                <div className="mr-2 flex min-w-0 items-center gap-1.5">
-                  {trade.profit >= 0 ? (
-                    <TrendingUp className="h-3 w-3 shrink-0 text-primary" />
-                  ) : (
-                    <TrendingDown className="h-3 w-3 shrink-0 text-destructive" />
-                  )}
-                  <div className="min-w-0">
-                    <p className="truncate text-xs font-medium text-foreground">{trade.market_title}</p>
-                    <p className="truncate text-[10px] text-muted-foreground">
-                      {trade.side.toUpperCase()} @ {(trade.price * 100).toFixed(1)}¢ · ${trade.amount.toFixed(2)} · {trade.status.toUpperCase()}
-                    </p>
+            {closedTrades.map((trade) => {
+              const tradeUrl = trade.bet_url || marketLookup.get(normalizeMarketId(trade.market_id))?.url;
+              return (
+                <div key={trade.id} className="flex items-center justify-between rounded-sm bg-muted/30 px-2 py-1.5">
+                  <div className="mr-2 flex min-w-0 items-center gap-1.5">
+                    {trade.profit >= 0 ? (
+                      <TrendingUp className="h-3 w-3 shrink-0 text-primary" />
+                    ) : (
+                      <TrendingDown className="h-3 w-3 shrink-0 text-destructive" />
+                    )}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="truncate text-xs font-medium text-foreground">{trade.market_title}</p>
+                        {tradeUrl && (
+                          <a
+                            href={tradeUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="shrink-0 text-muted-foreground transition-colors hover:text-primary"
+                            title="Open on Polymarket"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        )}
+                      </div>
+                      <p className="truncate text-[10px] text-muted-foreground">
+                        {trade.side.toUpperCase()} @ {(trade.price * 100).toFixed(1)}¢ · ${trade.amount.toFixed(2)} · {trade.status.toUpperCase()}
+                      </p>
+                    </div>
                   </div>
+                  <span className={`shrink-0 text-xs font-bold tabular-nums ${trade.profit >= 0 ? "text-primary" : "text-destructive"}`}>
+                    {trade.profit >= 0 ? "+" : ""}
+                    {trade.profit.toFixed(2)}
+                  </span>
                 </div>
-                <span className={`shrink-0 text-xs font-bold tabular-nums ${trade.profit >= 0 ? "text-primary" : "text-destructive"}`}>
-                  {trade.profit >= 0 ? "+" : ""}
-                  {trade.profit.toFixed(2)}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
