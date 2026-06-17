@@ -67,3 +67,47 @@ export function walkSellAgainstBids(levels: BidLevel[], sharesToSell: number): W
     unfilledShares: remaining,
   };
 }
+
+/**
+ * Clamp a requested sell quantity to what is actually sellable: never more than
+ * the shares held, and (when a target bid level is chosen) never more than that
+ * level's available size. Returns a non-negative, finite number of shares.
+ */
+export function clampSellQuantity(
+  requestedShares: number,
+  heldShares: number,
+  levelSize?: number,
+): number {
+  if (!Number.isFinite(requestedShares) || requestedShares <= 0) return 0;
+  let max = Number.isFinite(heldShares) && heldShares > 0 ? heldShares : 0;
+  if (levelSize != null && Number.isFinite(levelSize)) {
+    max = Math.min(max, Math.max(0, levelSize));
+  }
+  return Math.min(requestedShares, max);
+}
+
+export interface SellAgainstLevelResult {
+  /** Shares actually sold into the chosen level. */
+  shares: number;
+  /** Proceeds in USD (shares * level price). */
+  usd: number;
+  /** Per-share price (the level price), or null when nothing sold. */
+  price: number | null;
+}
+
+/**
+ * Sell up to `sharesToSell` shares into a single chosen bid level, capped at the
+ * level's available size. Models the "sell into one specific resting buy order
+ * for a chosen quantity" flow.
+ */
+export function walkSellAgainstLevel(
+  level: BidLevel | undefined,
+  sharesToSell: number,
+): SellAgainstLevelResult {
+  if (!level || !Number.isFinite(sharesToSell) || sharesToSell <= 0) {
+    return { shares: 0, usd: 0, price: null };
+  }
+  const shares = Math.min(sharesToSell, Math.max(0, level.size));
+  if (shares <= 0) return { shares: 0, usd: 0, price: null };
+  return { shares, usd: shares * level.price, price: level.price };
+}

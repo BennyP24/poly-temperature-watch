@@ -18,10 +18,38 @@ Deno.serve(async (req) => {
 
   try {
     if (req.method === "POST") {
-      const body = await req.json() as { tokenIds?: unknown };
+      const body = await req.json() as { tokenIds?: unknown; midpointTokenIds?: unknown };
+
+      // Midpoint mode: { midpointTokenIds: string[] } -> CLOB /midpoints (price shown on Polymarket).
+      const rawMid = body?.midpointTokenIds;
+      if (Array.isArray(rawMid)) {
+        const midTokens = rawMid.slice(0, MAX_CLOB_TOKENS).map((t) => String(t)).filter(Boolean);
+        if (midTokens.length === 0) {
+          return new Response(JSON.stringify({}), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const response = await fetch(`${CLOB_API}/midpoints`, {
+          method: "POST",
+          headers: { Accept: "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify(midTokens.map((token_id) => ({ token_id }))),
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          return new Response(JSON.stringify({ error: `CLOB midpoints error [${response.status}]: ${text}` }), {
+            status: response.status,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const data = await response.json();
+        return new Response(JSON.stringify(data), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       const raw = body?.tokenIds;
       if (!Array.isArray(raw) || raw.length === 0) {
-        return new Response(JSON.stringify({ error: "Expected { tokenIds: string[] }" }), {
+        return new Response(JSON.stringify({ error: "Expected { tokenIds: string[] } or { midpointTokenIds: string[] }" }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });

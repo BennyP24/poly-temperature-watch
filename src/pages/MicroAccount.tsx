@@ -4,6 +4,7 @@ import { usePolymarketData } from "@/hooks/usePolymarketData";
 import { useWeatherData } from "@/hooks/useWeatherData";
 import { useResolutionData, type ResolutionInput } from "@/hooks/useResolutionData";
 import { useMarketPrices } from "@/hooks/useMarketPrices";
+import { useMarketMidpoints } from "@/hooks/useMarketMidpoints";
 import { usePaperTrading } from "@/hooks/usePaperTrading";
 import { useMicroAutoTrade } from "@/hooks/useMicroAutoTrade";
 import { useMidnightBoost } from "@/hooks/useMidnightBoost";
@@ -12,6 +13,7 @@ import { StatusBar } from "@/components/StatusBar";
 import { TemperatureBetCard } from "@/components/TemperatureBetCard";
 import { PortfolioHeader } from "@/components/PortfolioHeader";
 import { MicroTradesSummary } from "@/components/MicroTradesSummary";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { EventSearchBar } from "@/components/EventSearchBar";
 import { TimeSubTabBar } from "@/components/TimeSubTabBar";
 import { filterEventsBySearch, filterEventsByTimeBucket, type TimeSubTab } from "@/lib/eventTimeBucket";
@@ -187,6 +189,20 @@ const MicroAccount = () => {
     history: micro.closedTrades.length,
   }), [activeEvents, upcoming, micro.closedTrades]);
 
+  // Live midpoints for whichever event list is on screen.
+  const visibleMicroEvents = activeTab === "active" ? activeDisplayed : activeTab === "upcoming" ? upcomingDisplayed : [];
+  const midpointTokenIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const e of visibleMicroEvents) {
+      for (const m of e.markets) {
+        if (m.yesTokenId) ids.push(m.yesTokenId);
+        if (m.noTokenId) ids.push(m.noTokenId);
+      }
+    }
+    return ids;
+  }, [visibleMicroEvents]);
+  const { data: midpoints } = useMarketMidpoints(midpointTokenIds);
+
   let refCounter = 0;
 
   const renderEvents = (items: (TemperatureEvent & { betDate: string; isObs: boolean })[]) => {
@@ -200,7 +216,7 @@ const MicroAccount = () => {
     }
 
     return (
-      <div className="space-y-3 sm:space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 sm:gap-4 items-start">
         {items.map(event => {
           refCounter++;
           return (
@@ -217,6 +233,7 @@ const MicroAccount = () => {
               isObservation={event.isObs}
               betDate={event.betDate}
               resolutionStatus={resolutionData?.[event.id]}
+              midpoints={midpoints}
             />
           );
         })}
@@ -226,9 +243,7 @@ const MicroAccount = () => {
 
   return (
     <div className="relative min-h-screen bg-background">
-      <div className="scanline fixed inset-0 z-50 h-[200%]" />
-
-      <div className="relative z-10 mx-auto max-w-6xl px-2 sm:px-4 py-3 sm:py-6">
+      <div className="relative z-10 mx-auto max-w-[120rem] px-2 sm:px-4 py-3 sm:py-6">
         {/* Header */}
         <div className="mb-4 sm:mb-6 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -251,6 +266,7 @@ const MicroAccount = () => {
                 BOOST MODE
               </span>
             )}
+            <ThemeToggle />
             <button onClick={() => refetch()} disabled={isFetching}
               className="flex items-center gap-1.5 sm:gap-2 rounded-md border border-border bg-secondary px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs text-secondary-foreground transition-colors hover:bg-secondary/80 disabled:opacity-50 shrink-0">
               <RefreshCw className={`h-3 w-3 sm:h-3.5 sm:w-3.5 ${isFetching ? "animate-spin" : ""}`} />
@@ -261,7 +277,7 @@ const MicroAccount = () => {
 
         {/* Portfolio */}
         <div className="mb-4 sm:mb-6">
-          <PortfolioHeader balance={micro.balance} openTrades={micro.openTrades} closedTrades={micro.closedTrades} totalProfit={micro.totalProfit} events={events} realTimePrices={realTimePrices ?? undefined} label="Micro" />
+          <PortfolioHeader balance={micro.consolidatedBalance} openTrades={micro.openTrades} closedTrades={micro.closedTrades} totalProfit={micro.totalProfit} events={events} realTimePrices={realTimePrices ?? undefined} label="Micro" />
         </div>
 
         {/* Status Bar */}
@@ -376,7 +392,7 @@ const MicroAccount = () => {
 
         {!isLoading && !error && activeTab === "history" && (
           <MicroTradesSummary
-            balance={micro.balance} totalProfit={micro.totalProfit}
+            balance={micro.consolidatedBalance} totalProfit={micro.totalProfit}
             openTrades={micro.openTrades} closedTrades={micro.closedTrades}
             historySearchQuery={searchByTab.history}
             events={events} realTimePrices={realTimePrices ?? undefined}

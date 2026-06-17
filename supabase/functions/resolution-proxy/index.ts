@@ -21,6 +21,8 @@ interface ResolutionResult {
   currentTempC: number | null;
   observedHighF: number | null;
   observedHighC: number | null;
+  observedLowF: number | null;
+  observedLowC: number | null;
   isObserved: boolean;
   source: string;
   stationId: string | null;
@@ -37,6 +39,8 @@ function emptyResult(overrides: Partial<ResolutionResult> = {}): ResolutionResul
     currentTempC: null,
     observedHighF: null,
     observedHighC: null,
+    observedLowF: null,
+    observedLowC: null,
     isObserved: false,
     source: SOURCE_LABEL,
     stationId: null,
@@ -137,6 +141,8 @@ Deno.serve(async (req) => {
       currentTempF: agg.latestTempC !== null ? round1(cToF(agg.latestTempC)) : null,
       observedHighC: agg.highC !== null ? round1(agg.highC) : null,
       observedHighF: agg.highC !== null ? round1(cToF(agg.highC)) : null,
+      observedLowC: agg.lowC !== null ? round1(agg.lowC) : null,
+      observedLowF: agg.lowC !== null ? round1(cToF(agg.lowC)) : null,
       isObserved: agg.samples > 0,
       source: SOURCE_LABEL,
       stationId: airport.icao,

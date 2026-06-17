@@ -118,7 +118,9 @@ export async function fetchMetar(
 export interface DailyMax {
   /** Highest `temp_c` over METARs in the local-day window, or null when no samples. */
   highC: number | null;
-  /** Number of in-window samples that contributed to `highC`. */
+  /** Lowest `temp_c` over METARs in the local-day window, or null when no samples. */
+  lowC: number | null;
+  /** Number of in-window samples that contributed to `highC`/`lowC`. */
   samples: number;
   /** ISO timestamp of the most recent observation in the window (or overall most recent if none in window). */
   latestObsTime: string | null;
@@ -144,6 +146,7 @@ export function dailyMaxFromMetars(
   const window = localDayUtcWindow(dateYmd, tz);
   const empty: DailyMax = {
     highC: null,
+    lowC: null,
     samples: 0,
     latestObsTime: null,
     latestTempC: null,
@@ -155,6 +158,7 @@ export function dailyMaxFromMetars(
 
   const { start, end } = window;
   let highC: number | null = null;
+  let lowC: number | null = null;
   let samples = 0;
   for (const obs of metars) {
     const t = Date.parse(obs.reportTime);
@@ -163,10 +167,12 @@ export function dailyMaxFromMetars(
     if (obs.tempC == null) continue;
     samples += 1;
     if (highC === null || obs.tempC > highC) highC = obs.tempC;
+    if (lowC === null || obs.tempC < lowC) lowC = obs.tempC;
   }
 
   return {
     highC,
+    lowC,
     samples,
     ...latestFrom(metars),
   };

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { normalizeBidLevels, walkSellAgainstBids, type BidLevel } from "./orderbookSell";
+import {
+  normalizeBidLevels,
+  walkSellAgainstBids,
+  walkSellAgainstLevel,
+  clampSellQuantity,
+  type BidLevel,
+} from "./orderbookSell";
 
 describe("normalizeBidLevels", () => {
   it("returns empty array for undefined input", () => {
@@ -143,5 +149,44 @@ describe("walkSellAgainstBids", () => {
     expect(result.filledShares).toBeCloseTo(833.33, 2);
     expect(result.totalUsd).toBeCloseTo(833.33 * 0.03, 4);
     expect(result.vwap).toBe(0.03);
+  });
+});
+
+describe("clampSellQuantity", () => {
+  it("returns 0 for non-positive or invalid requests", () => {
+    expect(clampSellQuantity(0, 5)).toBe(0);
+    expect(clampSellQuantity(-1, 5)).toBe(0);
+    expect(clampSellQuantity(NaN, 5)).toBe(0);
+  });
+
+  it("caps at shares held", () => {
+    expect(clampSellQuantity(10, 5)).toBe(5);
+    expect(clampSellQuantity(3, 5)).toBe(3);
+  });
+
+  it("caps at the level size when smaller than held", () => {
+    // hold 5 shares, only $3 of buy interest at price 1.0 => 3 shares of size
+    expect(clampSellQuantity(5, 5, 3)).toBe(3);
+    expect(clampSellQuantity(5, 5, 10)).toBe(5);
+  });
+});
+
+describe("walkSellAgainstLevel", () => {
+  it("returns empty when no level or non-positive shares", () => {
+    expect(walkSellAgainstLevel(undefined, 5)).toEqual({ shares: 0, usd: 0, price: null });
+    expect(walkSellAgainstLevel({ price: 0.5, size: 10 }, 0)).toEqual({ shares: 0, usd: 0, price: null });
+  });
+
+  it("sells the requested shares when within level size", () => {
+    const r = walkSellAgainstLevel({ price: 0.6, size: 10 }, 3);
+    expect(r.shares).toBe(3);
+    expect(r.usd).toBeCloseTo(1.8, 6);
+    expect(r.price).toBe(0.6);
+  });
+
+  it("caps at the level size", () => {
+    const r = walkSellAgainstLevel({ price: 0.5, size: 4 }, 10);
+    expect(r.shares).toBe(4);
+    expect(r.usd).toBeCloseTo(2, 6);
   });
 });

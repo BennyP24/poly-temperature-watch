@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { Thermometer, Zap, Briefcase, ArrowRight } from "lucide-react";
 import { usePaperTrading } from "@/hooks/usePaperTrading";
 import { ClockDisplay } from "@/components/ClockDisplay";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const Landing = () => {
   const paper = usePaperTrading("paper");
@@ -9,7 +10,9 @@ const Landing = () => {
 
   return (
     <div className="relative min-h-screen bg-background">
-      <div className="scanline fixed inset-0 z-50 h-[200%]" />
+      <div className="absolute right-3 top-3 z-20">
+        <ThemeToggle />
+      </div>
 
       <div className="relative z-10 mx-auto max-w-4xl px-4 py-8 sm:py-16">
         {/* Header */}
@@ -57,7 +60,7 @@ const Landing = () => {
             <div className="mb-4 grid grid-cols-3 gap-2">
               <div className="rounded-sm bg-muted/50 p-2 text-center">
                 <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Balance</div>
-                <div className="text-sm font-bold text-foreground tabular-nums">${paper.balance.toFixed(0)}</div>
+                <div className="text-sm font-bold text-foreground tabular-nums">${paper.consolidatedBalance.toFixed(0)}</div>
               </div>
               <div className="rounded-sm bg-muted/50 p-2 text-center">
                 <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Open</div>
@@ -96,7 +99,7 @@ const Landing = () => {
             <div className="mb-4 grid grid-cols-3 gap-2">
               <div className="rounded-sm bg-muted/50 p-2 text-center">
                 <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Balance</div>
-                <div className="text-sm font-bold text-foreground tabular-nums">${micro.balance.toFixed(0)}</div>
+                <div className="text-sm font-bold text-foreground tabular-nums">${micro.consolidatedBalance.toFixed(0)}</div>
               </div>
               <div className="rounded-sm bg-muted/50 p-2 text-center">
                 <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Open</div>

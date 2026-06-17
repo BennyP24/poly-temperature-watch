@@ -65,6 +65,25 @@ describe("dailyMaxFromMetars", () => {
     expect(r.highC).toBe(10);
     expect(r.samples).toBe(1);
   });
+
+  it("takes min across observations inside the window for lowC", () => {
+    const metars = [
+      obs("2026-05-25T11:30:00Z", -99), // BEFORE window, excluded
+      obs("2026-05-25T13:00:00Z", 11),
+      obs("2026-05-26T01:00:00Z", 17),
+      obs("2026-05-26T06:00:00Z", 8), // lowest in window
+      obs("2026-05-26T12:00:00Z", -99), // AT exclusive end, excluded
+    ];
+    const r = dailyMaxFromMetars(metars, "2026-05-26", "Pacific/Auckland");
+    expect(r.lowC).toBe(8);
+    expect(r.highC).toBe(17);
+    expect(r.samples).toBe(3);
+  });
+
+  it("returns null lowC when there are no METARs", () => {
+    const r = dailyMaxFromMetars([], "2026-05-26", "Pacific/Auckland");
+    expect(r.lowC).toBeNull();
+  });
 });
 
 describe("localDayUtcWindow", () => {

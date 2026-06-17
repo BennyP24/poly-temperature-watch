@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { computeConsolidatedBalance, DEFAULT_INITIAL_DEPOSIT } from "@/lib/portfolio";
 
 const DEVICE_COOKIE_KEY = "paper_device_id";
 
@@ -181,7 +182,10 @@ export function usePaperTrading(prefix = "paper") {
     if (!accountId) return;
     const nowIso = new Date().toISOString();
     await supabase.from("paper_accounts").update({ balance: 1000, updated_at: nowIso }).eq("id", accountId);
-    await supabase.from("paper_trades").update({ status: "cancelled" }).eq("account_id", accountId).eq("status", "open");
+    // Cancel the entire ledger (open AND closed). Cancelled rows are excluded from
+    // realized P/L and open stake, so the consolidated balance resets cleanly to
+    // the initial deposit instead of carrying old wins/losses forward.
+    await supabase.from("paper_trades").update({ status: "cancelled" }).eq("account_id", accountId).neq("status", "cancelled");
     setBalance(1000);
     await loadTrades();
   }, [accountId, loadTrades]);
@@ -217,6 +221,59 @@ export function usePaperTrading(prefix = "paper") {
       const nextBalance = balance + payout;
       const nowIso = new Date().toISOString();
       await supabase.from("paper_trades").update({ status: "sold", payout, profit, resolved_at: nowIso }).eq("id", tradeId).eq("account_id", accountId).eq("status", "open");
+      await supabase.from("paper_accounts").update({ balance: nextBalance, updated_at: nowIso }).eq("id", accountId);
+      setBalance(nextBalance);
+      await loadTrades();
+      return true;
+    },
+    [accountId, balance, trades, loadTrades]
+  );
+
+  /**
+   * Sell only part of an open position (a chosen number of shares) for a known
+   * USD payout. The sold shares are recorded as a separate closed "sold" row and
+   * the original open trade is reduced proportionally (stake and shares). Selling
+   * the full quantity closes the trade outright.
+   */
+  const sellTradePartial = useCallback(
+    async (tradeId: string, sharesToSell: number, payoutUsd: number) => {
+      const trade = trades.find((t) => t.id === tradeId);
+      if (!accountId || !trade || trade.status !== "open") return false;
+      if (!Number.isFinite(sharesToSell) || sharesToSell <= 0) return false;
+      if (!Number.isFinite(payoutUsd) || payoutUsd < 0) return false;
+      const shares = Math.min(sharesToSell, trade.shares);
+      if (shares <= 0) return false;
+
+      const fraction = shares / trade.shares;
+      const costBasis = trade.amount * fraction;
+      const profit = payoutUsd - costBasis;
+      const nextBalance = balance + payoutUsd;
+      const nowIso = new Date().toISOString();
+      const sellingAll = shares >= trade.shares - 1e-9;
+
+      if (sellingAll) {
+        await supabase
+          .from("paper_trades")
+          .update({ status: "sold", payout: payoutUsd, profit, resolved_at: nowIso })
+          .eq("id", tradeId).eq("account_id", accountId).eq("status", "open");
+      } else {
+        const remShares = trade.shares - shares;
+        const remAmount = trade.amount - costBasis;
+        const { error: reduceError } = await supabase
+          .from("paper_trades")
+          .update({ shares: remShares, amount: remAmount })
+          .eq("id", tradeId).eq("account_id", accountId).eq("status", "open");
+        if (reduceError) return false;
+        await supabase.from("paper_trades").insert({
+          account_id: accountId,
+          event_id: trade.event_id, event_title: trade.event_title,
+          market_id: trade.market_id, market_title: trade.market_title,
+          side: trade.side, price: trade.price, amount: costBasis, shares,
+          status: "sold", payout: payoutUsd, profit, resolved_at: nowIso,
+          bet_url: trade.bet_url ?? null,
+        });
+      }
+
       await supabase.from("paper_accounts").update({ balance: nextBalance, updated_at: nowIso }).eq("id", accountId);
       setBalance(nextBalance);
       await loadTrades();
@@ -261,9 +318,17 @@ export function usePaperTrading(prefix = "paper") {
   const openTrades = trades.filter((t) => t.status === "open");
   const closedTrades = trades.filter((t) => t.status !== "open" && t.status !== "cancelled");
 
+  // Consolidated cash derived from the ledger (initial + realized P/L - open stake).
+  // Equals the stored balance in normal operation, but guarantees the displayed
+  // figure reflects wins minus losses (e.g. 1000 + 900 - 800 = 1100). While trades
+  // are still loading we fall back to the stored balance to avoid a flash of $1,000.
+  const consolidatedBalance = loading
+    ? balance
+    : computeConsolidatedBalance(trades, DEFAULT_INITIAL_DEPOSIT);
+
   return {
     accountId,
-    balance, trades, openTrades, closedTrades, totalProfit, loading,
-    placeTrade, resetBalance, resolveTrade, sellTrade, restoreSession,
+    balance, consolidatedBalance, trades, openTrades, closedTrades, totalProfit, loading,
+    placeTrade, resetBalance, resolveTrade, sellTrade, sellTradePartial, restoreSession,
   };
 }

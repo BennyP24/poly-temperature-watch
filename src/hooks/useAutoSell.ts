@@ -109,7 +109,7 @@ export function useAutoSell({
       initialTpPrice,
       currentTpPrice: initialTpPrice,
       highWaterMark: trade.price,
-      side: trade.side,
+      side: trade.side === "no" ? "no" : "yes",
       createdAt: Date.now(),
     };
     

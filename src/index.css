@@ -5,7 +5,60 @@
 @tailwind utilities;
 
 @layer base {
+  /* Light theme (default): calm "fintech dashboard" look. Soft cool-gray canvas
+     with white cards that float, a confident deep-blue brand, and amber accents. */
   :root {
+    --background: 220 23% 95%;
+    --foreground: 222 32% 18%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 32% 18%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 32% 18%;
+
+    --primary: 224 64% 47%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 20% 91%;
+    --secondary-foreground: 222 28% 28%;
+
+    --muted: 220 22% 93%;
+    --muted-foreground: 220 12% 46%;
+
+    --accent: 28 92% 52%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 16% 85%;
+    --input: 220 16% 85%;
+    --ring: 224 64% 47%;
+
+    --radius: 0.5rem;
+
+    --signal-new: 152 56% 40%;
+    --signal-live: 224 64% 47%;
+    --signal-pulse: 28 92% 52%;
+    --signal-resolved: 152 52% 36%;
+
+    /* Soft elevation tokens for cards/popovers. */
+    --shadow-card: 0 1px 2px hsl(222 32% 18% / 0.04), 0 4px 12px hsl(222 32% 18% / 0.06);
+    --shadow-card-hover: 0 2px 4px hsl(222 32% 18% / 0.06), 0 10px 24px hsl(222 32% 18% / 0.10);
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222 32% 18%;
+    --sidebar-primary: 224 64% 47%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 20% 91%;
+    --sidebar-accent-foreground: 222 32% 18%;
+    --sidebar-border: 220 16% 85%;
+    --sidebar-ring: 224 64% 47%;
+  }
+
+  /* Dark theme (opt-in via `.dark` class). */
+  .dark {
     --background: 220 20% 7%;
     --foreground: 200 20% 90%;
 
@@ -34,12 +87,14 @@
     --input: 220 15% 18%;
     --ring: 185 80% 55%;
 
-    --radius: 0.375rem;
-
     --signal-new: 145 70% 50%;
     --signal-live: 185 80% 55%;
     --signal-pulse: 35 95% 60%;
     --signal-resolved: 145 70% 45%;
+
+    /* Dark mode keeps elevation flat; borders carry the separation. */
+    --shadow-card: 0 1px 2px hsl(0 0% 0% / 0.4);
+    --shadow-card-hover: 0 4px 16px hsl(0 0% 0% / 0.5);
 
     --sidebar-background: 220 18% 10%;
     --sidebar-foreground: 200 20% 90%;
@@ -60,6 +115,13 @@
   body {
     @apply bg-background text-foreground font-mono;
     font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Give solid card surfaces a soft, designed elevation so panels read as
+     "floating" over the canvas. Tailwind shadow-* utilities still override
+     this (e.g. dialogs keep their stronger shadow-lg). */
+  .bg-card {
+    box-shadow: var(--shadow-card);
   }
 }
 

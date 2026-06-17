@@ -4,6 +4,7 @@ import { usePolymarketData } from "@/hooks/usePolymarketData";
 import { useWeatherData } from "@/hooks/useWeatherData";
 import { useResolutionData, type ResolutionInput } from "@/hooks/useResolutionData";
 import { useMarketPrices } from "@/hooks/useMarketPrices";
+import { useMarketMidpoints } from "@/hooks/useMarketMidpoints";
 import { useSavedBets } from "@/hooks/useSavedBets";
 import { usePaperTrading, type ImportedPaperTrade } from "@/hooks/usePaperTrading";
 import { useAutoSell } from "@/hooks/useAutoSell";
@@ -12,6 +13,8 @@ import { TemperatureBetCard } from "@/components/TemperatureBetCard";
 import { PortfolioHeader } from "@/components/PortfolioHeader";
 import { PaperTradeDialog } from "@/components/PaperTradeDialog";
 import { PaperTradesSummary } from "@/components/PaperTradesSummary";
+import { WalletBar } from "@/components/WalletBar";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { useToast } from "@/components/ui/use-toast";
 import { EventSearchBar } from "@/components/EventSearchBar";
 import { TimeSubTabBar } from "@/components/TimeSubTabBar";
@@ -21,29 +24,29 @@ import {
   compareReadyEventsByDateThenCloseTime,
 } from "@/lib/betTimeWindow";
 import { isAsianLocation, normalizeMarketId, type TemperatureEvent, type TemperatureMarket } from "@/lib/polymarket";
+import { detectTempKind, type TempKind } from "@/lib/marketKind";
 import { getBetDateYmd } from "@/lib/eventDates";
 import { resolveAirportForLocation } from "@/lib/airports";
 import { Thermometer, RefreshCw, AlertTriangle, ArrowLeft, Briefcase } from "lucide-react";
 
-type TabKey = "ready" | "asian" | "israel" | "usa" | "europe" | "other" | "saved" | "trades";
+type Region = "asian" | "israel" | "usa" | "europe" | "other";
+type HighLowTab = "highest" | "lowest";
+type TopTab = HighLowTab | "ready" | "saved" | "trades";
 
-type TempListTabKey = "ready" | "asian" | "israel" | "usa" | "europe" | "other" | "saved";
+const REGIONS: { key: Region; label: string }[] = [
+  { key: "asian", label: "Asian" },
+  { key: "israel", label: "Israel" },
+  { key: "usa", label: "USA" },
+  { key: "europe", label: "Europe" },
+  { key: "other", label: "Other" },
+];
 
-const TEMP_LIST_TAB_KEYS: TempListTabKey[] = ["ready", "asian", "israel", "usa", "europe", "other", "saved"];
-
-function tempTabDefaults<T>(value: T): Record<TempListTabKey, T> {
-  return { ready: value, asian: value, israel: value, usa: value, europe: value, other: value, saved: value };
-}
-
-const TABS: { key: TabKey; label: string; short: string }[] = [
-  { key: "ready", label: "Ready", short: "Ready" },
-  { key: "asian", label: "Asian", short: "Asian" },
-  { key: "israel", label: "Israel", short: "Israel" },
-  { key: "usa", label: "USA", short: "USA" },
-  { key: "europe", label: "Europe", short: "Europe" },
-  { key: "other", label: "Other", short: "Other" },
-  { key: "saved", label: "Saved", short: "Saved" },
-  { key: "trades", label: "Trades", short: "Trades" },
+const TOP_TABS: { key: TopTab; label: string }[] = [
+  { key: "highest", label: "Highest Temp" },
+  { key: "lowest", label: "Lowest Temp" },
+  { key: "ready", label: "Ready" },
+  { key: "saved", label: "Saved" },
+  { key: "trades", label: "Trades" },
 ];
 
 const ISRAEL_CITIES = [
@@ -70,14 +73,17 @@ const EUROPE_CITIES = [
   "kyiv", "kiev", "manchester", "birmingham", "frankfurt", "hamburg",
 ];
 
-function getRegion(location: string): "asian" | "israel" | "usa" | "europe" | "other" {
+function getRegion(location: string): Region {
   const lower = location.toLowerCase().trim();
-  // Check Israel first before other regions
   if (ISRAEL_CITIES.some(c => lower.includes(c))) return "israel";
   if (isAsianLocation(location)) return "asian";
   if (USA_CITIES.some(c => lower.includes(c))) return "usa";
   if (EUROPE_CITIES.some(c => lower.includes(c))) return "europe";
   return "other";
+}
+
+function emptyRegions(): Record<Region, EnrichedEvent[]> {
+  return { asian: [], israel: [], usa: [], europe: [], other: [] };
 }
 
 interface SessionBackupFile {
@@ -87,17 +93,24 @@ interface SessionBackupFile {
   savedBetIds: string[];
 }
 
+type EnrichedEvent = TemperatureEvent & {
+  betDate: string;
+  isObs: boolean;
+  kind: HighLowTab;
+  region: Region;
+  almostReady?: boolean;
+};
+
 const TempAccount = () => {
   const { data: events, isLoading, error, dataUpdatedAt, refetch, isFetching } = usePolymarketData();
   const [userTimezone, setUserTimezone] = useState("UTC");
   const { toggle, isSaved, savedIds, replaceSaved } = useSavedBets();
   const paper = usePaperTrading("paper");
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<TabKey>("ready");
-  const [timeSubByTab, setTimeSubByTab] = useState<Record<TempListTabKey, TimeSubTab>>(() =>
-    tempTabDefaults("current"),
-  );
-  const [searchByTab, setSearchByTab] = useState<Record<TempListTabKey, string>>(() => tempTabDefaults(""));
+  const [activeTab, setActiveTab] = useState<TopTab>("highest");
+  const [activeRegion, setActiveRegion] = useState<Region>("usa");
+  const [timeSub, setTimeSub] = useState<TimeSubTab>("current");
+  const [search, setSearch] = useState("");
   const [tradeTarget, setTradeTarget] = useState<{ market: TemperatureMarket; event: TemperatureEvent } | null>(null);
   const autoSettleRef = useRef<Set<string>>(new Set());
 
@@ -114,7 +127,7 @@ const TempAccount = () => {
   const { data: weatherData } = useWeatherData(cities);
 
   const now = useMemo(() => new Date(), [dataUpdatedAt]);
-  const todayStr = now.toLocaleDateString("en-CA"); // User's local YYYY-MM-DD
+  const todayStr = now.toLocaleDateString("en-CA");
 
   const resolutionInputs = useMemo(() => {
     const inputs: Record<string, ResolutionInput> = {};
@@ -142,7 +155,6 @@ const TempAccount = () => {
   const realTimePrices = marketPricesData?.prices;
   const orderBooksByMarketId = marketPricesData?.orderBooksByMarketId;
 
-  // Auto-sell with trailing T/P
   const autoSell = useAutoSell({
     openTrades: paper.openTrades,
     realTimePrices,
@@ -153,7 +165,7 @@ const TempAccount = () => {
   const newSignals = useMemo(() => events?.filter(e => e.isNew).length ?? 0, [events]);
   const lastRefresh = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
 
-  // Auto-settle open trades when market resolves (Part 8)
+  // Auto-settle open trades when market resolves.
   useEffect(() => {
     if (!events || paper.openTrades.length === 0) return;
     const allMarkets = new Map<string, { yesPrice: number; noPrice: number; closed: boolean }>();
@@ -176,28 +188,26 @@ const TempAccount = () => {
     }
   }, [events, paper.openTrades, paper.resolveTrade]);
 
-  type EnrichedEvent = TemperatureEvent & { betDate: string; isObs: boolean; almostReady?: boolean };
-
   const categorized = useMemo(() => {
-    const empty: Record<TabKey, EnrichedEvent[]> = {
-      ready: [], asian: [], israel: [], usa: [], europe: [], other: [], saved: [], trades: [],
+    const byKind: Record<HighLowTab, Record<Region, EnrichedEvent[]>> = {
+      highest: emptyRegions(),
+      lowest: emptyRegions(),
     };
-    if (!events) return empty;
-
-    const result = { ...empty };
+    const ready: EnrichedEvent[] = [];
+    const saved: EnrichedEvent[] = [];
+    if (!events) return { byKind, ready, saved };
 
     for (const event of events) {
       const betDate = event.betDate;
       const isObs = betDate <= todayStr;
-      const enriched: EnrichedEvent = { ...event, betDate, isObs };
+      const kindRaw: TempKind = detectTempKind(event, { defaultToHighest: true });
+      const kind: HighLowTab = kindRaw === "lowest" ? "lowest" : "highest";
       const region = getRegion(event.location);
+      const enriched: EnrichedEvent = { ...event, betDate, isObs, kind, region };
 
-      result[region].push(enriched);
+      byKind[kind][region].push(enriched);
 
-      // Add to saved tab if saved
-      if (isSaved(event.id)) {
-        result.saved.push(enriched);
-      }
+      if (isSaved(event.id)) saved.push(enriched);
 
       const cityKey = event.location.toLowerCase().trim();
       const cityWeather = weatherData?.[cityKey];
@@ -205,18 +215,17 @@ const TempAccount = () => {
       const coolingConfirmed = dateW?.observedCoolingConfirmed ?? (isObs && dateW?.isPast) ?? false;
       const coolingProgress = dateW?.coolingProgress ?? 0;
       const resConfirmed = resolutionData?.[event.id]?.isObserved ?? false;
-      // METAR is the only acceptable observed high for the Ready signal — OWM
-      // forecasts are intentionally NOT used here (resolution decision).
       const highTemp = resolutionData?.[event.id]?.observedHighF ?? null;
+      const lowTemp = resolutionData?.[event.id]?.observedLowF ?? null;
+      const settleTemp = kind === "lowest" ? lowTemp : highTemp;
       const closesInMs = event.endDate ? new Date(event.endDate).getTime() - Date.now() : 0;
 
       const isReady =
         (coolingConfirmed || resConfirmed) &&
         event.markets.length > 0 &&
         closesInMs >= 3600000 &&
-        highTemp !== null;
+        settleTemp !== null;
 
-      // "Almost Ready" = has 1 cooling decline (not yet 2), has markets, closes in >= 1 hour
       const isAlmostReady =
         !isReady &&
         isObs &&
@@ -225,45 +234,59 @@ const TempAccount = () => {
         closesInMs >= 3600000;
 
       if (isReady) {
-        result.ready.push(enriched);
+        ready.push(enriched);
       } else if (isAlmostReady) {
-        result.ready.push({ ...enriched, almostReady: true });
+        ready.push({ ...enriched, almostReady: true });
       }
     }
 
-    // Sort ready events: fully ready first, then almost ready
-    result.ready.sort((a, b) => {
+    ready.sort((a, b) => {
       if (a.almostReady && !b.almostReady) return 1;
       if (!a.almostReady && b.almostReady) return -1;
       return compareReadyEventsByDateThenCloseTime(a, b);
     });
-    result.asian.sort(compareEventsByBetDateAscending);
-    result.israel.sort(compareEventsByBetDateAscending);
-    result.usa.sort(compareEventsByBetDateAscending);
-    result.europe.sort(compareEventsByBetDateAscending);
-    result.other.sort(compareEventsByBetDateAscending);
-    result.saved.sort(compareEventsByBetDateAscending);
+    for (const kind of ["highest", "lowest"] as HighLowTab[]) {
+      for (const r of REGIONS) byKind[kind][r.key].sort(compareEventsByBetDateAscending);
+    }
+    saved.sort(compareEventsByBetDateAscending);
 
-    return result;
+    return { byKind, ready, saved };
   }, [events, todayStr, weatherData, resolutionData, isSaved]);
 
   const nowMsForFilter = useMemo(() => now.getTime(), [now]);
 
-  const tempListFiltered = useMemo(() => {
-    if (!TEMP_LIST_TAB_KEYS.includes(activeTab as TempListTabKey)) return null;
-    const key = activeTab as TempListTabKey;
-    const raw = categorized[key];
-    const q = searchByTab[key];
-    // Skip time filtering for saved tab - show all saved bets regardless of date
-    if (key === "saved") {
-      const display = filterEventsBySearch(raw, q);
-      return { bucketed: raw, display };
+  const visibleList = useMemo(() => {
+    if (activeTab === "trades") return null;
+    let raw: EnrichedEvent[];
+    let useTime = true;
+    if (activeTab === "highest" || activeTab === "lowest") {
+      raw = categorized.byKind[activeTab][activeRegion];
+    } else if (activeTab === "ready") {
+      raw = categorized.ready;
+    } else {
+      raw = categorized.saved;
+      useTime = false; // saved shows all regardless of date
     }
-    const bucket = timeSubByTab[key];
-    const bucketed = filterEventsByTimeBucket(raw, bucket, todayStr, nowMsForFilter);
-    const display = filterEventsBySearch(bucketed, q);
+    const bucketed = useTime
+      ? filterEventsByTimeBucket(raw, timeSub, todayStr, nowMsForFilter)
+      : raw;
+    const display = filterEventsBySearch(bucketed, search);
     return { bucketed, display };
-  }, [categorized, activeTab, timeSubByTab, searchByTab, todayStr, nowMsForFilter]);
+  }, [categorized, activeTab, activeRegion, timeSub, search, todayStr, nowMsForFilter]);
+
+  // Fetch live midpoints for the markets currently on screen so the displayed
+  // odds match the Polymarket platform.
+  const midpointTokenIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const e of visibleList?.display ?? []) {
+      for (const m of e.markets) {
+        if (m.yesTokenId) ids.push(m.yesTokenId);
+        if (m.noTokenId) ids.push(m.noTokenId);
+      }
+    }
+    return ids;
+  }, [visibleList]);
+  const { data: midpoints } = useMarketMidpoints(midpointTokenIds);
 
   const handleDownloadSession = useCallback(() => {
     const payload: SessionBackupFile = {
@@ -307,16 +330,25 @@ const TempAccount = () => {
     [paper, replaceSaved, toast]
   );
 
-  const tabCounts = useMemo(() => ({
+  const kindTotals = useMemo(() => {
+    const sumKind = (k: HighLowTab) => REGIONS.reduce((s, r) => s + categorized.byKind[k][r.key].length, 0);
+    return { highest: sumKind("highest"), lowest: sumKind("lowest") };
+  }, [categorized]);
+
+  const tabCounts: Record<TopTab, number> = {
+    highest: kindTotals.highest,
+    lowest: kindTotals.lowest,
     ready: categorized.ready.length,
-    asian: categorized.asian.length,
-    israel: categorized.israel.length,
-    usa: categorized.usa.length,
-    europe: categorized.europe.length,
-    other: categorized.other.length,
     saved: categorized.saved.length,
     trades: paper.openTrades.length + paper.closedTrades.length,
-  }), [categorized, paper.openTrades, paper.closedTrades]);
+  };
+
+  const regionCounts = useMemo(() => {
+    if (activeTab !== "highest" && activeTab !== "lowest") return null;
+    const counts: Record<Region, number> = { asian: 0, israel: 0, usa: 0, europe: 0, other: 0 };
+    for (const r of REGIONS) counts[r.key] = categorized.byKind[activeTab][r.key].length;
+    return counts;
+  }, [categorized, activeTab]);
 
   let refCounter = 0;
 
@@ -330,75 +362,81 @@ const TempAccount = () => {
       );
     }
 
-    // Separate ready and almost-ready events
     const readyEvents = items.filter(e => !e.almostReady);
     const almostReadyEvents = items.filter(e => e.almostReady);
 
+    const gridClass = "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 sm:gap-4 items-start";
+
     return (
       <div className="space-y-3 sm:space-y-4">
-        {/* Fully Ready Events */}
-        {readyEvents.map(event => {
-          refCounter++;
-          return (
-            <TemperatureBetCard
-              key={event.id}
-              event={event}
-              userTimezone={userTimezone}
-              weather={weatherData?.[event.location.toLowerCase().trim()]}
-              isSaved={isSaved(event.id)}
-              onToggleSave={() => toggle(event.id)}
-              refNumber={refCounter}
-              isObservation={event.isObs}
-              betDate={event.betDate}
-              onPlaceTrade={(market) => setTradeTarget({ market, event })}
-              resolutionStatus={resolutionData?.[event.id]}
-              hideClocks={hideClocks}
-            />
-          );
-        })}
+        <div className={gridClass}>
+          {readyEvents.map(event => {
+            refCounter++;
+            return (
+              <TemperatureBetCard
+                key={event.id}
+                event={event}
+                userTimezone={userTimezone}
+                weather={weatherData?.[event.location.toLowerCase().trim()]}
+                isSaved={isSaved(event.id)}
+                onToggleSave={() => toggle(event.id)}
+                refNumber={refCounter}
+                isObservation={event.isObs}
+                betDate={event.betDate}
+                onPlaceTrade={(market) => setTradeTarget({ market, event })}
+                resolutionStatus={resolutionData?.[event.id]}
+                hideClocks={hideClocks}
+                midpoints={midpoints}
+              />
+            );
+          })}
+        </div>
 
-        {/* Almost Ready Section (1 cooling decline observed) */}
         {almostReadyEvents.length > 0 && (
           <>
             <div className="flex items-center gap-2 pt-2 pb-1">
               <div className="h-px flex-1 bg-border" />
-              <span className="text-[10px] uppercase tracking-wider text-orange-400 font-bold">
+              <span className="text-[10px] uppercase tracking-wider text-orange-500 font-bold">
                 Almost Ready ({almostReadyEvents.length}) — 1 cooling decline observed
               </span>
               <div className="h-px flex-1 bg-border" />
             </div>
-            {almostReadyEvents.map(event => {
-              refCounter++;
-              return (
-                <div key={event.id} className="relative">
-                  <div className="absolute -left-1 top-0 bottom-0 w-1 bg-orange-400 rounded-full" />
-                  <TemperatureBetCard
-                    event={event}
-                    userTimezone={userTimezone}
-                    weather={weatherData?.[event.location.toLowerCase().trim()]}
-                    isSaved={isSaved(event.id)}
-                    onToggleSave={() => toggle(event.id)}
-                    refNumber={refCounter}
-                    isObservation={event.isObs}
-                    betDate={event.betDate}
-                    onPlaceTrade={(market) => setTradeTarget({ market, event })}
-                    resolutionStatus={resolutionData?.[event.id]}
-                    hideClocks={hideClocks}
-                  />
-                </div>
-              );
-            })}
+            <div className={gridClass}>
+              {almostReadyEvents.map(event => {
+                refCounter++;
+                return (
+                  <div key={event.id} className="relative">
+                    <div className="absolute -left-1 top-0 bottom-0 z-10 w-1 bg-orange-500 rounded-full" />
+                    <TemperatureBetCard
+                      event={event}
+                      userTimezone={userTimezone}
+                      weather={weatherData?.[event.location.toLowerCase().trim()]}
+                      isSaved={isSaved(event.id)}
+                      onToggleSave={() => toggle(event.id)}
+                      refNumber={refCounter}
+                      isObservation={event.isObs}
+                      betDate={event.betDate}
+                      onPlaceTrade={(market) => setTradeTarget({ market, event })}
+                      resolutionStatus={resolutionData?.[event.id]}
+                      hideClocks={hideClocks}
+                      midpoints={midpoints}
+                    />
+                  </div>
+                );
+              })}
+            </div>
           </>
         )}
       </div>
     );
   };
 
+  const showRegionBar = activeTab === "highest" || activeTab === "lowest";
+  const showListControls = !isLoading && !error && activeTab !== "trades";
+
   return (
     <div className="relative min-h-screen bg-background">
-      <div className="scanline fixed inset-0 z-50 h-[200%]" />
-
-      <div className="relative z-10 mx-auto max-w-6xl px-2 sm:px-4 py-3 sm:py-6">
+      <div className="relative z-10 mx-auto max-w-[120rem] px-2 sm:px-4 py-3 sm:py-6">
         {/* Header */}
         <div className="mb-3 sm:mb-6 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -416,6 +454,7 @@ const TempAccount = () => {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <ThemeToggle />
             <button onClick={() => refetch()} disabled={isFetching}
               className="flex items-center gap-1.5 sm:gap-2 rounded-md border border-border bg-secondary px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs text-secondary-foreground transition-colors hover:bg-secondary/80 disabled:opacity-50 shrink-0">
               <RefreshCw className={`h-3 w-3 sm:h-3.5 sm:w-3.5 ${isFetching ? "animate-spin" : ""}`} />
@@ -424,9 +463,14 @@ const TempAccount = () => {
           </div>
         </div>
 
+        {/* Wallet / multi-account */}
+        <div className="mb-3 sm:mb-6">
+          <WalletBar />
+        </div>
+
         {/* Portfolio */}
         <div className="mb-3 sm:mb-6">
-          <PortfolioHeader balance={paper.balance} openTrades={paper.openTrades} closedTrades={paper.closedTrades} totalProfit={paper.totalProfit} events={events} realTimePrices={realTimePrices ?? undefined} label="Paper" />
+          <PortfolioHeader balance={paper.consolidatedBalance} openTrades={paper.openTrades} closedTrades={paper.closedTrades} totalProfit={paper.totalProfit} events={events} realTimePrices={realTimePrices ?? undefined} label="Paper" />
         </div>
 
         {/* Status Bar */}
@@ -434,16 +478,20 @@ const TempAccount = () => {
           <StatusBar totalBets={events?.length ?? 0} newSignals={newSignals} lastRefresh={lastRefresh} userTimezone={userTimezone} />
         </div>
 
-        {/* Tabs -- scrollable on mobile */}
-        <div className="mb-3 sm:mb-6 overflow-x-auto scrollbar-none">
+        {/* Top tabs */}
+        <div className="mb-2 overflow-x-auto scrollbar-none">
           <div className="flex gap-1 rounded-md border border-border bg-card p-1 min-w-max">
-            {TABS.map(tab => (
+            {TOP_TABS.map(tab => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
                 className={`whitespace-nowrap rounded-sm px-2 sm:px-3 py-1.5 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider transition-colors ${
                   activeTab === tab.key
-                    ? "bg-primary text-primary-foreground"
+                    ? tab.key === "lowest"
+                      ? "bg-blue-500 text-white"
+                      : tab.key === "highest"
+                        ? "bg-destructive text-destructive-foreground"
+                        : "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 }`}
               >
@@ -458,21 +506,37 @@ const TempAccount = () => {
           </div>
         </div>
 
-        {!isLoading && !error && TEMP_LIST_TAB_KEYS.includes(activeTab as TempListTabKey) && (
+        {/* Region subtabs (inside Highest/Lowest) */}
+        {showRegionBar && regionCounts && (
+          <div className="mb-2 overflow-x-auto scrollbar-none">
+            <div className="flex gap-1 rounded-md border border-border bg-muted/40 p-1 min-w-max">
+              {REGIONS.map(r => (
+                <button
+                  key={r.key}
+                  onClick={() => setActiveRegion(r.key)}
+                  className={`whitespace-nowrap rounded-sm px-2 sm:px-3 py-1 text-[9px] sm:text-[10px] font-semibold uppercase tracking-wider transition-colors ${
+                    activeRegion === r.key
+                      ? "bg-secondary text-secondary-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {r.label}
+                  {regionCounts[r.key] > 0 && (
+                    <span className="ml-1 text-[8px] opacity-70">({regionCounts[r.key]})</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Search + time subtabs */}
+        {showListControls && (
           <div className="mb-3 space-y-2">
-            <EventSearchBar
-              value={searchByTab[activeTab as TempListTabKey]}
-              onChange={(v) =>
-                setSearchByTab((prev) => ({ ...prev, [activeTab as TempListTabKey]: v }))
-              }
-              id={`temp-search-${activeTab}`}
-            />
-            <TimeSubTabBar
-              value={timeSubByTab[activeTab as TempListTabKey]}
-              onChange={(v) =>
-                setTimeSubByTab((prev) => ({ ...prev, [activeTab as TempListTabKey]: v }))
-              }
-            />
+            <EventSearchBar value={search} onChange={setSearch} id="temp-search" />
+            {activeTab !== "saved" && (
+              <TimeSubTabBar value={timeSub} onChange={setTimeSub} />
+            )}
           </div>
         )}
 
@@ -493,12 +557,13 @@ const TempAccount = () => {
 
         {!isLoading && !error && activeTab === "trades" && (
           <PaperTradesSummary
-            balance={paper.balance} totalProfit={paper.totalProfit}
+            balance={paper.consolidatedBalance} totalProfit={paper.totalProfit}
             openTrades={paper.openTrades} closedTrades={paper.closedTrades}
             events={events} realTimePrices={realTimePrices ?? undefined}
             orderBooksByMarketId={orderBooksByMarketId}
             onReset={paper.resetBalance} onResolve={paper.resolveTrade}
-            onSell={paper.sellTrade} onDownloadSession={handleDownloadSession} onUploadSession={handleUploadSession}
+            onSell={paper.sellTrade} onSellPartial={paper.sellTradePartial}
+            onDownloadSession={handleDownloadSession} onUploadSession={handleUploadSession}
             autoSellConfig={autoSell.config}
             autoSellTargets={autoSell.stats.targets}
             onToggleAutoSell={autoSell.toggleEnabled}
@@ -506,25 +571,25 @@ const TempAccount = () => {
           />
         )}
 
-        {!isLoading && !error && tempListFiltered && activeTab !== "trades" && (
-          tempListFiltered.display.length === 0 ? (
+        {!isLoading && !error && visibleList && activeTab !== "trades" && (
+          visibleList.display.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12">
               <Thermometer className="mb-2 h-6 w-6 text-muted-foreground" />
               <p className="text-sm text-muted-foreground text-center px-4">
-                {tempListFiltered.bucketed.length === 0
+                {visibleList.bucketed.length === 0
                   ? "No bets in this time range."
                   : "No bets match your search."}
               </p>
             </div>
           ) : (
-            renderEvents(tempListFiltered.display, activeTab === "ready")
+            renderEvents(visibleList.display, activeTab === "ready")
           )
         )}
 
         {tradeTarget && (
           <PaperTradeDialog
             market={tradeTarget.market} eventId={tradeTarget.event.id} eventTitle={tradeTarget.event.title}
-            balance={paper.balance} onPlace={paper.placeTrade} onClose={() => setTradeTarget(null)}
+            balance={paper.consolidatedBalance} onPlace={paper.placeTrade} onClose={() => setTradeTarget(null)}
           />
         )}
 

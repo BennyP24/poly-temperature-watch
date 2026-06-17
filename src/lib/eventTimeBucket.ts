@@ -7,9 +7,12 @@ const MS_24H = 24 * 60 * 60 * 1000;
 export type TimeSubTab = "last24h" | "current" | "future";
 
 /**
- * last24h: market `endDate` in (now − 24h, now] — recently ended.
- * current: `betDate` equals today (user's local date).
+ * last24h: market `endDate` in (now − 24h, now] — recently ended (resolved) bets.
+ * current: `betDate` equals today AND the market hasn't closed yet (still tradeable today).
  * future: `betDate` after today (user's local date).
+ *
+ * Requiring the market to still be open for "current" keeps already-resolved bets
+ * out of today's tradeable list — they belong in "Last 24hrs".
  */
 export function eventMatchesTimeBucket(
   event: { betDate: string; endDate: string },
@@ -22,7 +25,9 @@ export function eventMatchesTimeBucket(
     if (endMs === null) return false;
     return endMs > nowMs - MS_24H && endMs <= nowMs;
   }
-  if (bucket === "current") return event.betDate === todayStr;
+  if (bucket === "current") {
+    return event.betDate === todayStr && (endMs === null || endMs > nowMs);
+  }
   return event.betDate > todayStr;
 }
 

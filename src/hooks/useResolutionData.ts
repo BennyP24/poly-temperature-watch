@@ -16,6 +16,8 @@ export interface ResolutionStatus {
   currentTempC: number | null;
   observedHighF: number | null;
   observedHighC: number | null;
+  observedLowF: number | null;
+  observedLowC: number | null;
   isObserved: boolean;
   source: string;
   stationId: string | null;
@@ -43,6 +45,8 @@ function emptyStatus(overrides: Partial<ResolutionStatus> = {}): ResolutionStatu
     currentTempC: null,
     observedHighF: null,
     observedHighC: null,
+    observedLowF: null,
+    observedLowC: null,
     isObserved: false,
     source: RESOLUTION_SOURCE_LABEL,
     stationId: null,

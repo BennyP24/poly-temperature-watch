@@ -1,8 +1,9 @@
-import { useMemo, useRef, type ChangeEvent } from "react";
+import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import type { PaperTrade } from "@/hooks/usePaperTrading";
 import { normalizeMarketId, type TemperatureEvent } from "@/lib/polymarket";
 import type { MarketPrice, MarketSideBooks } from "@/hooks/useMarketPrices";
 import { OrderBookExitPreview, computeSellWalkForTrade } from "@/components/OrderBookExitPreview";
+import { SellOrderDialog } from "@/components/SellOrderDialog";
 import {
   DollarSign,
   RotateCcw,
@@ -27,6 +28,7 @@ interface PaperTradesSummaryProps {
   onReset: () => void;
   onResolve: (tradeId: string, won: boolean) => void | Promise<void>;
   onSell: (tradeId: string, bidPrice: number, options?: { payoutUsd?: number }) => void | Promise<boolean>;
+  onSellPartial?: (tradeId: string, shares: number, payoutUsd: number) => boolean | Promise<boolean>;
   onDownloadSession: () => void;
   onUploadSession: (file: File) => void | Promise<void>;
   // Auto-sell props (optional)
@@ -47,6 +49,7 @@ export function PaperTradesSummary({
   onReset,
   onResolve,
   onSell,
+  onSellPartial,
   onDownloadSession,
   onUploadSession,
   autoSellConfig,
@@ -55,6 +58,7 @@ export function PaperTradesSummary({
   getAutoSellTarget,
 }: PaperTradesSummaryProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [sellOrderTrade, setSellOrderTrade] = useState<PaperTrade | null>(null);
 
   const wins = closedTrades.filter((t) => t.status === "won").length;
   const losses = closedTrades.filter((t) => t.status === "lost").length;
@@ -284,6 +288,17 @@ export function PaperTradesSummary({
                           ? `SELL ~${(walk.vwap * 100).toFixed(1)}¢ VWAP`
                           : `SELL @ ${(refPrice * 100).toFixed(1)}¢`}
                     </button>
+                    {onSellPartial && (
+                      <button
+                        onClick={() => setSellOrderTrade(trade)}
+                        disabled={!hasBook}
+                        className="flex items-center gap-1 rounded-sm border border-primary/50 bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Sell a chosen quantity into a specific buy order"
+                      >
+                        <Target className="h-2.5 w-2.5" />
+                        SELL ORDER
+                      </button>
+                    )}
                     <button
                       onClick={() => onResolve(trade.id, true)}
                       className="rounded-sm bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold text-primary hover:bg-primary/25"
@@ -355,6 +370,15 @@ export function PaperTradesSummary({
           <p className="text-sm text-muted-foreground">No trades yet</p>
           <p className="mt-1 text-[10px] text-muted-foreground">Place a trade from any bet card</p>
         </div>
+      )}
+
+      {sellOrderTrade && onSellPartial && (
+        <SellOrderDialog
+          trade={sellOrderTrade}
+          sides={orderBooksByMarketId?.get(normalizeMarketId(sellOrderTrade.market_id))}
+          onClose={() => setSellOrderTrade(null)}
+          onSellPartial={onSellPartial}
+        />
       )}
     </div>
   );

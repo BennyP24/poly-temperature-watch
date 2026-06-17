@@ -4,7 +4,10 @@ import type { CityWeather, DateWeather } from "@/hooks/useWeatherData";
 import type { ResolutionStatus } from "@/hooks/useResolutionData";
 import { SignalBadge, type SignalStatus } from "./SignalBadge";
 import { ClockDisplay } from "./ClockDisplay";
-import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, Check, Copy, Zap, ShieldCheck } from "lucide-react";
+import { computeRisk, riskTextClass, riskBgClass } from "@/lib/risk";
+import { detectTempKind } from "@/lib/marketKind";
+import { isWundergroundSource, WUNDERGROUND_WARNING } from "@/lib/resolutionSource";
+import { ExternalLink, MapPin, Clock, Link, Thermometer, TrendingUp, TrendingDown, Check, Copy, Zap, ShieldCheck, AlertTriangle } from "lucide-react";
 
 interface TemperatureBetCardProps {
   event: TemperatureEvent;
@@ -20,6 +23,8 @@ interface TemperatureBetCardProps {
   onPlaceTrade?: (market: TemperatureMarket) => void;
   resolutionStatus?: ResolutionStatus;
   hideClocks?: boolean;
+  /** Live CLOB midpoint prices keyed by outcome token id (Polymarket display price). */
+  midpoints?: Map<string, number>;
 }
 
 function parseTempRange(title: string): [number, number] | null {
@@ -124,17 +129,27 @@ function deriveSignalStatus(
   return "live";
 }
 
-export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, isMicroSaved, onToggleMicroSave, refNumber, isObservation, betDate, onPlaceTrade, resolutionStatus, hideClocks }: TemperatureBetCardProps) {
+export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onToggleSave, isMicroSaved, onToggleMicroSave, refNumber, isObservation, betDate, onPlaceTrade, resolutionStatus, hideClocks, midpoints }: TemperatureBetCardProps) {
   const dateWeather = getDateWeather(weather, betDate);
+
+  // Highest vs lowest temperature market (drives blue/red accents and which
+  // observed extreme we settle against).
+  const tempKind = detectTempKind(event, { defaultToHighest: true });
+  const isLowKind = tempKind === "lowest";
+
+  // Wunderground bets can resolve differently from NOAA — flag prominently.
+  const wunderground = isWundergroundSource(event);
 
   // METAR is the only source for observed temperature. OpenWeatherMap is used
   // exclusively for cooling/peak detection below — never as a temperature fallback.
   const metarCurrent = resolutionStatus?.currentTempF ?? null;
   const metarHigh = resolutionStatus?.observedHighF ?? null;
-  const hasMetarData = metarCurrent !== null || metarHigh !== null;
+  const metarLow = resolutionStatus?.observedLowF ?? null;
+  // The extreme this market settles against: low for lowest-temp markets, else high.
+  const settleTemp = isLowKind ? metarLow : metarHigh;
+  const hasMetarData = metarCurrent !== null || settleTemp !== null;
 
   const currentTemp = metarCurrent;
-  const highTemp = metarHigh;
   const tempSource: "metar" | "none" = hasMetarData ? "metar" : "none";
 
   // Cooling detection uses OpenWeatherMap hourly data; this is independent of
@@ -168,12 +183,18 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
   const msUntilClose = event.endDate ? new Date(event.endDate).getTime() - Date.now() : null;
   const hoursUntilClose = msUntilClose !== null ? Math.max(0, Math.floor(msUntilClose / 3600000)) : null;
 
-  const hasAnyTempData = currentTemp !== null || highTemp !== null;
+  const hasAnyTempData = currentTemp !== null || settleTemp !== null;
+
+  // Accent for the extreme temperature: BLUE for lowest markets, RED for highest.
+  const extremeAccentClass = isLowKind ? "text-blue-500" : "text-destructive";
+  const extremeIconClass = isLowKind ? "text-blue-500" : "text-destructive";
 
   return (
     <div
       className={`relative rounded-md border bg-card p-3 sm:p-4 transition-all hover:border-primary/30 ${
-        isCooling
+        isLowKind
+          ? "border-blue-500/40"
+          : isCooling
           ? "border-emerald-500/60 shadow-[0_0_12px_hsl(142_71%_45%/0.25)]"
           : signalStatus === "live-heating"
             ? "border-orange-400/40 shadow-[0_0_10px_hsl(25_95%_53%/0.1)]"
@@ -185,6 +206,16 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
       {isCooling && (
         <div className="absolute -top-2 right-3 rounded-sm bg-emerald-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
           Observed Cooling
+        </div>
+      )}
+
+      {/* Wunderground resolution warning (top) — noticeable but not disturbing (50% opacity). */}
+      {wunderground && (
+        <div className="mb-2 flex items-center gap-1.5 rounded-sm border border-destructive/60 bg-destructive/10 px-2 py-1.5 opacity-50">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
+          <span className="text-[11px] sm:text-xs font-extrabold uppercase tracking-wide text-destructive">
+            {WUNDERGROUND_WARNING}
+          </span>
         </div>
       )}
 
@@ -308,12 +339,16 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
             </div>
             <div className="flex flex-col items-center gap-0.5">
               <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">
-                {showResolutionTemp ? "Observed High" : "High"}
+                {isLowKind ? (showResolutionTemp ? "Observed Low" : "Low") : showResolutionTemp ? "Observed High" : "High"}
               </span>
               <div className="flex items-center gap-0.5">
-                <TrendingUp className="h-3 w-3 text-destructive" />
-                <span className={`text-[10px] sm:text-xs font-bold tabular-nums ${showResolutionTemp ? "text-emerald-400" : "text-destructive"}`}>
-                  {formatHighTemp(highTemp)}
+                {isLowKind ? (
+                  <TrendingDown className={`h-3 w-3 ${extremeIconClass}`} />
+                ) : (
+                  <TrendingUp className={`h-3 w-3 ${extremeIconClass}`} />
+                )}
+                <span className={`text-[10px] sm:text-xs font-bold tabular-nums ${showResolutionTemp ? "text-emerald-400" : extremeAccentClass}`}>
+                  {isLowKind ? formatTemp(settleTemp) : formatHighTemp(settleTemp)}
                 </span>
               </div>
             </div>
@@ -324,14 +359,14 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
           </div>
         )}
 
-        {showResolutionTemp && metarHigh !== null && (
+        {showResolutionTemp && settleTemp !== null && (
           <div className="text-center text-[9px] text-muted-foreground">
-            Settles at: <span className="font-bold text-foreground">{formatHighTemp(metarHigh)}</span>
+            Settles at: <span className="font-bold text-foreground">{isLowKind ? formatTemp(settleTemp) : formatHighTemp(settleTemp)}</span>
           </div>
         )}
-        {!showResolutionTemp && isObservation && highTemp !== null && (
+        {!showResolutionTemp && isObservation && settleTemp !== null && (
           <div className="text-center text-[9px] text-orange-400">
-            Waiting for 3h cooling confirmation...
+            Waiting for cooling confirmation...
           </div>
         )}
 
@@ -359,21 +394,18 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
 
       {/* Markets / Odds — full outcome list (sorted by implied YES, like Polymarket) */}
       <div className="mb-2 sm:mb-3 space-y-1.5 overflow-x-auto">
-        {/* Resolution time with risk indicator */}
+        {/* Resolution time with duration-based risk indicator */}
         {(() => {
-          const { text: timeText, hoursLeft } = formatTimeRemaining(event.endDate);
-          const isHighRisk = hoursLeft !== null && hoursLeft <= 2;
-          const isMediumRisk = hoursLeft !== null && hoursLeft > 2 && hoursLeft <= 6;
-          const urgentClass = isHighRisk ? "text-destructive" : isMediumRisk ? "text-orange-400" : "text-muted-foreground";
-          const riskLabel = isHighRisk ? "HIGH RISK" : isMediumRisk ? "MED RISK" : null;
-          const riskBgClass = isHighRisk ? "bg-destructive/20" : isMediumRisk ? "bg-orange-400/20" : "";
+          const { text: timeText } = formatTimeRemaining(event.endDate);
+          const risk = computeRisk({ endDate: event.endDate, coolingConfirmed: observedCoolingConfirmed });
+          const urgentClass = riskTextClass(risk.level);
           return (
-            <div className={`flex items-center justify-between px-2 py-1 mb-1 rounded-sm ${riskBgClass}`}>
+            <div className={`flex items-center justify-between px-2 py-1 mb-1 rounded-sm ${riskBgClass(risk.level)}`}>
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Resolution in:</span>
               <div className="flex items-center gap-2">
-                {riskLabel && (
+                {risk.label && (
                   <span className={`text-[9px] font-bold uppercase ${urgentClass}`}>
-                    {riskLabel}
+                    {risk.label}
                   </span>
                 )}
                 <span className={`text-[11px] font-bold tabular-nums ${urgentClass}`}>
@@ -399,11 +431,19 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
         </div>
         <div className="space-y-1 max-h-[min(70vh,28rem)] overflow-y-auto pr-0.5">
           {[...event.markets]
-            .sort((a, b) => b.yesPrice - a.yesPrice)
             .map((m) => {
-              const correct = showResolutionTemp && isCorrectAnswer(m.groupItemTitle, metarHigh);
-              const yesProfitPct = m.yesPrice > 0 ? ((1 - m.yesPrice) / m.yesPrice) * 100 : 0;
-              const noProfitPct = m.noPrice > 0 ? ((1 - m.noPrice) / m.noPrice) * 100 : 0;
+              // Prefer live CLOB midpoint (Polymarket display price); fall back to Gamma.
+              const yesMid = m.yesTokenId ? midpoints?.get(m.yesTokenId) : undefined;
+              const noMid = m.noTokenId ? midpoints?.get(m.noTokenId) : undefined;
+              const yesPrice = yesMid ?? m.yesPrice;
+              const noPrice = noMid ?? m.noPrice;
+              return { m, yesPrice, noPrice };
+            })
+            .sort((a, b) => b.yesPrice - a.yesPrice)
+            .map(({ m, yesPrice, noPrice }) => {
+              const correct = showResolutionTemp && isCorrectAnswer(m.groupItemTitle, settleTemp);
+              const yesProfitPct = yesPrice > 0 ? ((1 - yesPrice) / yesPrice) * 100 : 0;
+              const noProfitPct = noPrice > 0 ? ((1 - noPrice) / noPrice) * 100 : 0;
               const label = m.groupItemTitle || m.question || "—";
 
               const rowClass = `grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] gap-x-2 sm:gap-x-3 items-center rounded-md px-2 py-2 sm:py-2.5 min-w-[min(100%,380px)] border ${
@@ -423,13 +463,13 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
                     </span>
                   </div>
                   <span className={`w-[4.25rem] sm:w-20 text-center text-sm sm:text-base font-semibold tabular-nums shrink-0 ${correct ? "text-emerald-400" : "text-[hsl(var(--signal-resolved))]"}`}>
-                    {(m.yesPrice * 100).toFixed(1)}¢
+                    {(yesPrice * 100).toFixed(1)}¢
                   </span>
                   <span className="w-12 sm:w-14 text-center text-sm sm:text-base tabular-nums text-[hsl(var(--signal-resolved))] shrink-0">
                     +{yesProfitPct.toFixed(0)}%
                   </span>
                   <span className="w-[4.25rem] sm:w-20 text-center text-sm sm:text-base font-semibold tabular-nums text-destructive shrink-0">
-                    {(m.noPrice * 100).toFixed(1)}¢
+                    {(noPrice * 100).toFixed(1)}¢
                   </span>
                   <span className="w-12 sm:w-14 text-center text-sm sm:text-base tabular-nums text-destructive shrink-0">
                     +{noProfitPct.toFixed(0)}%
@@ -442,7 +482,7 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
                   <button
                     key={m.id}
                     type="button"
-                    onClick={() => onPlaceTrade(m)}
+                    onClick={() => onPlaceTrade({ ...m, yesPrice, noPrice })}
                     title="Paper trade this outcome"
                     className={`${rowClass} w-full text-left cursor-pointer transition-colors hover:bg-muted/40 ${
                       correct ? "hover:bg-emerald-500/25" : "hover:border-border"
@@ -534,6 +574,16 @@ export function TemperatureBetCard({ event, userTimezone, weather, isSaved, onTo
               {link}
             </a>
           ))}
+        </div>
+      )}
+
+      {/* Wunderground resolution warning (bottom) — noticeable but not disturbing (50% opacity). */}
+      {wunderground && (
+        <div className="mt-2 flex items-center gap-1.5 rounded-sm border border-destructive/60 bg-destructive/10 px-2 py-1.5 opacity-50">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
+          <span className="text-[11px] sm:text-xs font-extrabold uppercase tracking-wide text-destructive">
+            {WUNDERGROUND_WARNING}
+          </span>
         </div>
       )}
     </div>

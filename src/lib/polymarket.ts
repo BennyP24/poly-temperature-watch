@@ -213,20 +213,61 @@ export interface TemperatureMarket {
   active: boolean;
   closed: boolean;
   isFulfilled: boolean;
+  /** CLOB token id for the YES outcome (used to fetch live midpoint prices). */
+  yesTokenId: string | null;
+  /** CLOB token id for the NO outcome. */
+  noTokenId: string | null;
 }
+
+/** Extract [yesTokenId, noTokenId] from a Gamma market's clobTokenIds + outcomes. */
+export function parseYesNoTokenIds(m: {
+  clobTokenIds?: unknown;
+  outcomes?: unknown;
+}): { yesTokenId: string | null; noTokenId: string | null } {
+  let tokens: string[] = [];
+  const raw = m.clobTokenIds;
+  if (Array.isArray(raw)) tokens = raw.map((x) => String(x));
+  else if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) tokens = parsed.map((x) => String(x));
+    } catch { /* noop */ }
+  }
+  if (tokens.length < 2) return { yesTokenId: null, noTokenId: null };
+
+  let labels: string[] = [];
+  const rawOutcomes = m.outcomes;
+  try {
+    if (typeof rawOutcomes === "string") labels = JSON.parse(rawOutcomes);
+    else if (Array.isArray(rawOutcomes)) labels = rawOutcomes.map((x) => String(x));
+  } catch { /* noop */ }
+
+  if (labels.length >= 2) {
+    const yesI = labels.findIndex((l) => /^\s*yes\s*$/i.test(String(l)));
+    const noI = labels.findIndex((l) => /^\s*no\s*$/i.test(String(l)));
+    if (yesI >= 0 && noI >= 0) return { yesTokenId: tokens[yesI], noTokenId: tokens[noI] };
+  }
+  return { yesTokenId: tokens[0], noTokenId: tokens[1] };
+}
+
+/** Window (ms) during which a just-closed event is still shown (for the "Last 24hrs" tab). */
+const RECENTLY_CLOSED_WINDOW_MS = 36 * 60 * 60 * 1000;
 
 export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
   const headers = getSupabaseAuthHeaders();
-  
-  // Make two API calls: one for soonest events, one for latest created (future events)
+
+  // Three API calls: soonest open events, latest-created (future) events, and
+  // recently-closed events so the "Last 24hrs" view can show resolved bets.
   const ascUrl = `${getSupabaseFunctionUrl("polymarket-proxy")}?endpoint=events&params=${encodeURIComponent("closed=false&limit=300&order=endDate&ascending=true&tag_slug=weather")}`;
   const descUrl = `${getSupabaseFunctionUrl("polymarket-proxy")}?endpoint=events&params=${encodeURIComponent("closed=false&limit=300&order=createdAt&ascending=false&tag_slug=weather")}`;
-  
-  let ascResponse: Response, descResponse: Response;
+  const closedUrl = `${getSupabaseFunctionUrl("polymarket-proxy")}?endpoint=events&params=${encodeURIComponent("closed=true&limit=200&order=endDate&ascending=false&tag_slug=weather")}`;
+
+  let ascResponse: Response, descResponse: Response, closedResponse: Response;
   try {
-    [ascResponse, descResponse] = await Promise.all([
+    [ascResponse, descResponse, closedResponse] = await Promise.all([
       fetch(ascUrl, { headers }),
       fetch(descUrl, { headers }),
+      fetch(closedUrl, { headers }),
     ]);
   } catch (error) {
     throw error;
@@ -235,16 +276,24 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
   if (!ascResponse.ok || !descResponse.ok) {
     throw new Error(`Proxy error: ${ascResponse.status} / ${descResponse.status}`);
   }
-  
+
   const [ascEvents, descEvents] = await Promise.all([
     ascResponse.json(),
     descResponse.json(),
   ]);
-  
-  // Merge and dedupe by event id
+  // Closed events are best-effort: a failure shouldn't break the main lists.
+  let closedEvents: any[] = [];
+  try {
+    if (closedResponse.ok) {
+      const parsed = await closedResponse.json();
+      if (Array.isArray(parsed)) closedEvents = parsed;
+    }
+  } catch { /* noop */ }
+
+  // Merge and dedupe by event id (open lists win over the closed list on conflict)
   const seenIds = new Set<string>();
   const events: any[] = [];
-  for (const e of [...ascEvents, ...descEvents]) {
+  for (const e of [...ascEvents, ...descEvents, ...closedEvents]) {
     if (!seenIds.has(e.id)) {
       seenIds.add(e.id);
       events.push(e);
@@ -271,7 +320,14 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
 
       const asian = isAsianLocation(location);
 
-      // Include all markets, even closed ones - filter only truly closed (resolved) ones
+      // Events that ended within the last ~36h are kept (with their now-resolved
+      // markets) so the "Last 24hrs" view can show outcomes.
+      const endMs = Date.parse(event.endDate);
+      const endedRecently =
+        Number.isFinite(endMs) && endMs <= now.getTime() && endMs > now.getTime() - RECENTLY_CLOSED_WINDOW_MS;
+
+      // Include all markets, even closed ones - filter only truly closed (resolved) ones,
+      // unless the event just ended (then we keep them to display the resolved result).
       const markets: TemperatureMarket[] = (event.markets || [])
         .map((m: any) => {
           let yesPrice = 0;
@@ -283,6 +339,7 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
           } catch { /* noop */ }
 
           const isFulfilled = yesPrice >= 0.99 || noPrice >= 0.99;
+          const { yesTokenId, noTokenId } = parseYesNoTokenIds(m);
 
           return {
             id: m.id,
@@ -294,9 +351,11 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
             active: m.active,
             closed: m.closed,
             isFulfilled,
+            yesTokenId,
+            noTokenId,
           };
         })
-        .filter((m: TemperatureMarket) => !m.closed);
+        .filter((m: TemperatureMarket) => endedRecently || !m.closed);
 
       const hasUnfulfilled = asian
         ? markets.length > 0
@@ -325,16 +384,19 @@ export async function fetchTemperatureEvents(): Promise<TemperatureEvent[]> {
         markets,
         priorityRank: isPriorityCity(location),
         _hasUnfulfilled: hasUnfulfilled,
+        _endedRecently: endedRecently,
       };
     });
 
-  // Filter out events where ANY market is at 99%+ (essentially resolved)
+  // Filter out events where ANY market is at 99%+ (essentially resolved), EXCEPT
+  // recently-ended events which we keep specifically so "Last 24hrs" can show results.
   return mapped
     .filter((e: any) => {
       if (e.markets.length === 0) return false;
+      if (e._endedRecently) return true;
       // Remove event if ANY market has yesPrice >= 0.99 (essentially decided)
       const hasResolvedMarket = e.markets.some((m: TemperatureMarket) => m.yesPrice >= 0.99);
       return !hasResolvedMarket;
     })
-    .map(({ _hasUnfulfilled, ...e }: any) => e);
+    .map(({ _hasUnfulfilled, _endedRecently, ...e }: any) => e);
 }
